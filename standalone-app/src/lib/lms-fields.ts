@@ -313,6 +313,58 @@ export function getLinkedResourceIdsFromSectionFields(fields: Record<string, unk
   return [];
 }
 
+/** First displayable URL from an Airtable attachment / image field (array or single object; uses `url` or thumbnails). */
+export function extractFirstAttachmentUrl(value: unknown): string | null {
+  if (value == null) return null;
+  if (typeof value === "string") {
+    const t = value.trim();
+    if (/^https?:\/\//i.test(t)) return t;
+    return null;
+  }
+  if (Array.isArray(value) && value.length > 0) {
+    for (const item of value) {
+      const u = attachmentItemUrl(item);
+      if (u) return u;
+    }
+    return null;
+  }
+  return attachmentItemUrl(value);
+}
+
+function attachmentItemUrl(item: unknown): string | null {
+  if (item == null || typeof item !== "object") return null;
+  const o = item as Record<string, unknown>;
+  if (typeof o.url === "string" && o.url.trim()) return o.url.trim();
+  const th = o.thumbnails;
+  if (th && typeof th === "object") {
+    const t = th as Record<string, unknown>;
+    for (const key of ["large", "full", "small"] as const) {
+      const slot = t[key];
+      if (slot && typeof slot === "object" && "url" in (slot as object)) {
+        const u = (slot as { url?: string }).url;
+        if (typeof u === "string" && u.trim()) return u.trim();
+      }
+    }
+  }
+  return null;
+}
+
+/** Learning track card / header image from linked track fields (Learning Tracks table). */
+export function getLearningTrackImageUrlFromFields(trackFields: Record<string, unknown> | undefined): string | null {
+  if (!trackFields) return null;
+  const candidates = [
+    trackFields["Track Image"],
+    trackFields.trackImage,
+    trackFields.Image,
+    trackFields.image,
+  ];
+  for (const v of candidates) {
+    const u = extractFirstAttachmentUrl(v);
+    if (u) return u;
+  }
+  return null;
+}
+
 export function getRecordId(r: Record<string, unknown> | { id?: string; fields?: Record<string, unknown> } | undefined): string | null {
   if (!r || typeof r !== "object") return null;
   const rec = r as Record<string, unknown>;

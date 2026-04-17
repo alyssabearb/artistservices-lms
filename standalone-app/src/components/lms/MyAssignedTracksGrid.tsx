@@ -12,6 +12,7 @@ import { cn } from "@/lib/utils";
 import { progressApiUrl } from "@/lib/progress";
 import { persistTrackRecordId } from "@/lib/lms-track-nav";
 import { assignmentDisplayTotalSections } from "@/lib/lms-assignment-section-total";
+import { getLearningTrackImageUrlFromFields } from "@/lib/lms-fields";
 
 const PAGE_SLUGS = {
   myLearning: "/my-learning",
@@ -221,6 +222,7 @@ export function MyAssignedTracksGrid({
   type TrackInfo = {
     trackId: string;
     label: string;
+    imageUrl: string | null;
     dueDate: string | null;
     completionDate: string | null;
     totalSections: number;
@@ -233,7 +235,15 @@ export function MyAssignedTracksGrid({
 
   const tracksForPerson = useMemo((): TrackInfo[] => {
     if (!personId) return [];
-    const byTrackId = new Map<string, Omit<TrackInfo, "completedCount" | "progressPercent" | "sectionsViewed" | "isComplete"> & { assignments: { status: string | null; completionDate: string | null }[]; totalSections: number; courseIds: string[] }>();
+    const byTrackId = new Map<
+      string,
+      Omit<TrackInfo, "completedCount" | "progressPercent" | "sectionsViewed" | "isComplete"> & {
+        assignments: { status: string | null; completionDate: string | null }[];
+        totalSections: number;
+        courseIds: string[];
+        imageUrl: string | null;
+      }
+    >();
     for (const rec of assignmentRecords) {
       const f = rec.fields as Record<string, unknown> | undefined;
       const trackRef = f?.track ?? f?.Track;
@@ -261,15 +271,18 @@ export function MyAssignedTracksGrid({
         : thisAssignmentCourseIds;
       const courseIds = [...new Set(withAssignment)];
       const totalSectionsForTrack = assignmentDisplayTotalSections(rec, courseIds.length);
+      const imageUrl = getLearningTrackImageUrlFromFields(trackFields);
       const existing = byTrackId.get(trackId);
       if (existing) {
         existing.assignments.push({ status: st, completionDate: cd });
         if (totalSectionsForTrack > 0) existing.totalSections = Math.max(existing.totalSections || 0, totalSectionsForTrack);
         existing.courseIds = [...new Set([...(existing.courseIds || []), ...courseIds])];
+        if (imageUrl && !existing.imageUrl) existing.imageUrl = imageUrl;
       } else {
         byTrackId.set(trackId, {
           trackId,
           label: typeof label === "string" && label ? label : "Untitled Track",
+          imageUrl: imageUrl ?? null,
           dueDate: dueDate != null ? String(dueDate) : null,
           completionDate: cd,
           totalSections: totalSectionsForTrack,
@@ -376,8 +389,12 @@ export function MyAssignedTracksGrid({
               const actionLabel = t.isComplete ? "Review" : t.progressPercent > 0 ? "Continue" : "Start";
               return (
                 <Card key={t.trackId} className="group hover:shadow-lg transition-shadow duration-300 flex flex-col">
-                  <div className="aspect-video bg-muted/50 rounded-t-lg flex items-center justify-center">
-                    <BookOpen className="h-16 w-16 text-muted-foreground" />
+                  <div className="aspect-video bg-muted/50 rounded-t-lg overflow-hidden flex items-center justify-center relative">
+                    {t.imageUrl ? (
+                      <img src={t.imageUrl} alt={t.label} className="absolute inset-0 w-full h-full object-cover" />
+                    ) : (
+                      <BookOpen className="h-16 w-16 text-muted-foreground relative z-10" />
+                    )}
                   </div>
                   <CardHeader className="flex-1">
                     <CardTitle className="text-xl leading-tight">{t.label}</CardTitle>
