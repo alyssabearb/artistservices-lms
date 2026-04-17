@@ -4,7 +4,7 @@ import { useSearchParams } from "next/navigation";
 import { useEffect, useMemo, useState } from "react";
 import { MyLearningProfileStrip } from "@/components/lms/MyLearningProfileStrip";
 import { MyAssignedTracksGrid } from "@/components/lms/MyAssignedTracksGrid";
-import { getLinkedRecordId } from "@/lib/lms-fields";
+import { getLearningTrackImageUrlFromFields, getLinkedRecordId } from "@/lib/lms-fields";
 
 type AssignmentRow = { id?: string; fields?: Record<string, unknown> };
 type ContactRow = { id: string; fields: Record<string, unknown> };
@@ -18,6 +18,8 @@ export default function MyLearningTracksShell() {
   const [assignments, setAssignments] = useState<AssignmentRow[]>([]);
   const [aStatus, setAStatus] = useState<"pending" | "success" | "error">("pending");
   const [trackCourseIdsById, setTrackCourseIdsById] = useState<Map<string, string[]>>(new Map());
+  /** Full track rows are fetched per id (assignments only store link ids, not expanded fields like Track Image). */
+  const [trackImageUrlById, setTrackImageUrlById] = useState<Map<string, string | null>>(new Map());
 
   useEffect(() => {
     if (!personId) {
@@ -77,23 +79,30 @@ export default function MyLearningTracksShell() {
     let cancelled = false;
     (async () => {
       const map = new Map<string, string[]>();
+      const images = new Map<string, string | null>();
       await Promise.all(
         uniqueTrackIds.map(async (tid) => {
           try {
             const r = await fetch(`/api/tracks/${encodeURIComponent(tid)}`).then((x) => x.json());
-            const courses = r.fields?.Courses ?? r.fields?.courses;
+            const fields = r.fields as Record<string, unknown> | undefined;
+            const courses = fields?.Courses ?? fields?.courses;
             const courseIds = Array.isArray(courses)
               ? courses
                   .map((c: unknown) => getLinkedRecordId(c as { id?: string }))
                   .filter((x): x is string => Boolean(x))
               : [];
             map.set(tid, courseIds);
+            images.set(tid, getLearningTrackImageUrlFromFields(fields));
           } catch {
             map.set(tid, []);
+            images.set(tid, null);
           }
         })
       );
-      if (!cancelled) setTrackCourseIdsById(map);
+      if (!cancelled) {
+        setTrackCourseIdsById(map);
+        setTrackImageUrlById(images);
+      }
     })();
     return () => {
       cancelled = true;
@@ -122,6 +131,7 @@ export default function MyLearningTracksShell() {
         rawAssignments={assignments}
         assignmentsStatus={aStatus}
         trackCourseIdsById={trackCourseIdsById}
+        trackImageUrlById={trackImageUrlById}
       />
     </>
   );

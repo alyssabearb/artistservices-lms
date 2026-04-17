@@ -19,6 +19,8 @@ const PAGE_SLUGS = {
   trackView: "/track-view",
 };
 
+const EMPTY_TRACK_IMAGE_MAP = new Map<string, string | null>();
+
 type ProgressEntry = number | { lastViewedIndex?: number; completedAt?: string } | null | undefined;
 
 /** Ensure we have a plain object with course-id keys (handle string response, wrapped { data }, or error). */
@@ -188,6 +190,8 @@ export type MyAssignedTracksGridProps = {
   rawAssignments: { id?: string; fields?: Record<string, unknown> }[];
   assignmentsStatus: "pending" | "success" | "error";
   trackCourseIdsById: Map<string, string[]>;
+  /** From `/api/tracks/:id` — assignments usually only include link ids, not track fields like Track Image. */
+  trackImageUrlById?: Map<string, string | null>;
 };
 
 export function MyAssignedTracksGrid({
@@ -195,6 +199,7 @@ export function MyAssignedTracksGrid({
   rawAssignments,
   assignmentsStatus: status,
   trackCourseIdsById,
+  trackImageUrlById = EMPTY_TRACK_IMAGE_MAP,
 }: MyAssignedTracksGridProps) {
   const [apiProgress, setApiProgress] = useState<Record<string, ProgressEntry> | null>(null);
 
@@ -271,7 +276,8 @@ export function MyAssignedTracksGrid({
         : thisAssignmentCourseIds;
       const courseIds = [...new Set(withAssignment)];
       const totalSectionsForTrack = assignmentDisplayTotalSections(rec, courseIds.length);
-      const imageUrl = getLearningTrackImageUrlFromFields(trackFields);
+      const imageUrl =
+        trackImageUrlById.get(trackId) ?? getLearningTrackImageUrlFromFields(trackFields);
       const existing = byTrackId.get(trackId);
       if (existing) {
         existing.assignments.push({ status: st, completionDate: cd });
@@ -315,7 +321,7 @@ export function MyAssignedTracksGrid({
         completionDate: displayCompletionDate,
       };
     });
-  }, [personId, assignmentRecords, trackCourseIdsById, apiProgress]);
+  }, [personId, assignmentRecords, trackCourseIdsById, trackImageUrlById, apiProgress]);
 
   const goBack = () => {
     if (typeof window !== "undefined") window.location.href = PAGE_SLUGS.myLearning;
