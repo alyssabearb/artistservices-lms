@@ -1,0 +1,14 @@
+.DS_Store
+
+# Next.js LMS (standalone-app)
+standalone-app/node_modules/
+standalone-app/.next/
+standalone-app/out/
+standalone-app/.env*
+!standalone-app/.env.local.example
+standalone-app/*.tsbuildinfo
+standalone-app/npm-debug.log*
+standalone-app/.vercel
+
+# Webhook proxy (optional sibling project)
+Softr-Learning-Tracks-Webhook-Proxy/node_modules/

@@ -1,0 +1,3 @@
+# Rewrite /api/* to Netlify Functions
+/api/progress    /.netlify/functions/progress    200
+/api/section-view    /.netlify/functions/section-view    200

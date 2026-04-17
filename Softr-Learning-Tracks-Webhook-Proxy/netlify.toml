@@ -1,0 +1,26 @@
+[build]
+  command = "npm install"
+  publish = "public"
+  functions = "netlify/functions"
+
+[functions]
+  node_bundler = "esbuild"
+
+# Rewrite /api/* to Netlify Functions so Softr can keep using the same URLs
+[[redirects]]
+  from = "/api/progress"
+  to = "/.netlify/functions/progress"
+  status = 200
+  force = true
+
+[[redirects]]
+  from = "/api/section-view"
+  to = "/.netlify/functions/section-view"
+  status = 200
+  force = true
+
+[[redirects]]
+  from = "/api/complete"
+  to = "/.netlify/functions/complete"
+  status = 200
+  force = true
