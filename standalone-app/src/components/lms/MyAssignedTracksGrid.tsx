@@ -121,14 +121,16 @@ function getTrackProgressFromApi(courseIds: string[], totalSections: number, api
   return Math.min(100, Math.round((viewedCount / denom) * 100));
 }
 
-function formatDateMMDDYYYY(value: string | null | undefined): string {
+/** Due / completion on cards: M/D/YY, no leading zeros (e.g. 4/20/26). */
+function formatCardDateMDY(value: string | null | undefined): string {
   if (value == null || value === "") return "";
   const d = new Date(value);
   if (Number.isNaN(d.getTime())) return value;
-  const mm = String(d.getMonth() + 1).padStart(2, "0");
-  const dd = String(d.getDate()).padStart(2, "0");
-  const yyyy = d.getFullYear();
-  return `${mm}-${dd}-${yyyy}`;
+  const m = d.getMonth() + 1;
+  const day = d.getDate();
+  const yy = d.getFullYear() % 100;
+  const yyStr = yy < 10 ? `0${yy}` : String(yy);
+  return `${m}/${day}/${yyStr}`;
 }
 
 function getLinkedRecordId(linked: { id?: string; recordId?: string; label?: string } | string | null | undefined): string | null {
@@ -382,12 +384,12 @@ export function MyAssignedTracksGrid({
                     {t.isComplete && t.completionDate ? (
                       <CardDescription className="flex items-center gap-1.5">
                         <CheckCircle className="h-4 w-4 text-green-600" />
-                        Completion Date: {formatDateMMDDYYYY(t.completionDate)}
+                        Completion Date: {formatCardDateMDY(t.completionDate)}
                       </CardDescription>
                     ) : t.dueDate ? (
                       <CardDescription className="flex items-center gap-1.5">
                         <Clock className="h-4 w-4" />
-                        Due: {formatDateMMDDYYYY(t.dueDate)}
+                        Due: {formatCardDateMDY(t.dueDate)}
                       </CardDescription>
                     ) : null}
                   </CardHeader>

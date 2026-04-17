@@ -8,14 +8,39 @@ import { Button } from "@/components/ui/button";
 
 const PAGE_SLUGS = { myLearning: "/my-learning" };
 
-function photoUrlFromField(v: unknown): string | null {
-  if (!v) return null;
-  if (Array.isArray(v) && v.length > 0) {
-    const first = v[0];
-    if (first && typeof first === "object" && "url" in first) return (first as { url: string }).url;
+/** Airtable attachment / image field: prefer direct `url`, then thumbnail URLs. */
+function attachmentImageUrl(item: unknown): string | null {
+  if (item == null || typeof item !== "object") return null;
+  const o = item as Record<string, unknown>;
+  if (typeof o.url === "string" && o.url.trim()) return o.url.trim();
+  const th = o.thumbnails;
+  if (th && typeof th === "object") {
+    const t = th as Record<string, unknown>;
+    for (const key of ["large", "full", "small"] as const) {
+      const slot = t[key];
+      if (slot && typeof slot === "object" && "url" in (slot as object)) {
+        const u = (slot as { url?: string }).url;
+        if (typeof u === "string" && u.trim()) return u.trim();
+      }
+    }
   }
-  if (typeof v === "object" && v !== null && "url" in v) return (v as { url: string }).url;
   return null;
+}
+
+function photoUrlFromField(v: unknown): string | null {
+  if (v == null) return null;
+  if (typeof v === "string") {
+    const t = v.trim();
+    if (/^https?:\/\//i.test(t)) return t;
+    return null;
+  }
+  if (Array.isArray(v) && v.length > 0) {
+    for (const item of v) {
+      const u = attachmentImageUrl(item);
+      if (u) return u;
+    }
+  }
+  return attachmentImageUrl(v);
 }
 
 function asString(v: unknown): string {
@@ -65,7 +90,7 @@ export function MyLearningProfileStrip({ personId, person, status }: MyLearningP
 
   const fields = (person?.fields ?? {}) as Record<string, unknown>;
   const name = asString(fields.name ?? fields.Name ?? "");
-  const photoUrl = photoUrlFromField(fields.photo ?? fields.Photo ?? fields["Profile Photo"]);
+  const photoUrl = photoUrlFromField(fields["Photo"] ?? fields.Photo ?? fields.photo ?? fields["Profile Photo"]);
   const title = asString(fields.title ?? fields.Title ?? "");
   const becVenue = fields.becVenue ?? fields["BEC Venue"];
   function venueDisplayName(v: unknown): string {
