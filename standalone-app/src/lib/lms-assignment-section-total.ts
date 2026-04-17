@@ -40,7 +40,7 @@ export function assignmentDisplayTotalSections(
   rec: { id?: string; fields?: Record<string, unknown> },
   courseIdsLength: number
 ): number {
-  let n = readTotalSectionsFromAssignmentLikeRecord(rec);
+  const n = readTotalSectionsFromAssignmentLikeRecord(rec);
   if (n === 0 && courseIdsLength > 0) return courseIdsLength;
   return n;
 }
