@@ -6,5 +6,6 @@ export function getTableNames() {
     courses: process.env.AIRTABLE_TABLE_COURSES ?? "Courses",
     sections: process.env.AIRTABLE_TABLE_SECTIONS ?? "Training Sections",
     resources: process.env.AIRTABLE_TABLE_RESOURCES ?? "Resource Library",
+    surveySubmissions: process.env.AIRTABLE_TABLE_SURVEY_SUBMISSIONS ?? "Survey Submissions",
   };
 }

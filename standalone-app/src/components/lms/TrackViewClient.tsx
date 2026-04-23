@@ -2,16 +2,22 @@
 /**
  * Track detail / track-view (standalone: /api/tracks + /api/courses/list).
  */
-import React, { useState, useMemo, useEffect } from "react";
+import React, { useState, useMemo, useEffect, useCallback } from "react";
 import { Card, CardHeader, CardTitle } from "@/components/ui/card";
 import { BookOpen, ArrowRight, ArrowLeft, Clock } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Progress } from "@/components/ui/progress";
 import { cn } from "@/lib/utils";
-import { progressApiUrl } from "@/lib/progress";
+import {
+  mergeProgressMaps,
+  progressApiUrl,
+  readProgressMapFromSessionStorage,
+  type ProgressEntry as StoredProgressEntry,
+} from "@/lib/progress";
 import { getLinkedCoursesFromTrackFields } from "@/lib/lms-fields";
 import { assignmentDisplayTotalSections } from "@/lib/lms-assignment-section-total";
 import { LMS_STORAGE_TRACK_RECORD_ID, persistTrackRecordId } from "@/lib/lms-track-nav";
+import { countReaderOutlineSlotsFromCourse } from "@/lib/lms-course-section-count";
 
 const PAGE_SLUGS = {
   learningTracks: "/learning-tracks",
@@ -41,31 +47,56 @@ function normalizeProgressResponse(data: unknown): ApiProgressMap {
   return obj as ApiProgressMap;
 }
 
+function readProgressEntryFromRaw(raw: ProgressEntry | null | undefined): {
+  lastViewedIndex: number;
+  startedAt?: string;
+  completedAt?: string;
+} | null {
+  if (raw == null) return null;
+  const lastViewedIndex =
+    typeof raw === "number"
+      ? raw
+      : typeof (raw as { lastViewedIndex?: number }).lastViewedIndex === "number"
+        ? (raw as { lastViewedIndex: number }).lastViewedIndex
+        : -1;
+  const startedAt =
+    typeof raw === "object" && raw !== null && "startedAt" in raw ? (raw as { startedAt?: string }).startedAt : undefined;
+  const completedAt =
+    typeof raw === "object" && raw !== null && "completedAt" in raw ? (raw as { completedAt?: string }).completedAt : undefined;
+  return { lastViewedIndex: lastViewedIndex >= -1 ? lastViewedIndex : -1, startedAt, completedAt };
+}
+
+/** Prefer completion, then highest lastViewedIndex, across all id aliases (never use Object.keys order as course order). */
+function compareProgressEntries(
+  a: { lastViewedIndex: number; startedAt?: string; completedAt?: string },
+  b: { lastViewedIndex: number; startedAt?: string; completedAt?: string }
+): number {
+  const ac = Boolean(a.completedAt);
+  const bc = Boolean(b.completedAt);
+  if (ac !== bc) return ac ? 1 : -1;
+  if (a.lastViewedIndex !== b.lastViewedIndex) return a.lastViewedIndex - b.lastViewedIndex;
+  return 0;
+}
+
 function getProgressEntryFromApi(
   apiProgress: ApiProgressMap,
   tryKey: string | undefined,
   ...possibleIds: (string | null | undefined)[]
 ): { lastViewedIndex: number; startedAt?: string; completedAt?: string } {
   if (!apiProgress) return { lastViewedIndex: -1 };
-  const read = (key: string) => {
-    const raw = apiProgress[key];
-    if (raw == null) return null;
-    const lastViewedIndex = typeof raw === "number" ? raw : (typeof (raw as { lastViewedIndex?: number }).lastViewedIndex === "number" ? (raw as { lastViewedIndex: number }).lastViewedIndex : -1);
-    const startedAt = typeof raw === "object" && raw !== null && "startedAt" in raw ? (raw as { startedAt?: string }).startedAt : undefined;
-    const completedAt = typeof raw === "object" && raw !== null && "completedAt" in raw ? (raw as { completedAt?: string }).completedAt : undefined;
-    return { lastViewedIndex: lastViewedIndex >= -1 ? lastViewedIndex : -1, startedAt, completedAt };
-  };
+  const ids = new Set<string>();
+  if (tryKey) ids.add(tryKey);
   for (const id of possibleIds) {
-    if (id && typeof id === "string" && id in apiProgress) {
-      const out = read(id);
-      if (out) return out;
-    }
+    if (id && typeof id === "string") ids.add(id);
   }
-  if (tryKey && tryKey in apiProgress) {
-    const out = read(tryKey);
-    if (out) return out;
+  let best: { lastViewedIndex: number; startedAt?: string; completedAt?: string } = { lastViewedIndex: -1 };
+  for (const id of ids) {
+    if (!(id in apiProgress)) continue;
+    const entry = readProgressEntryFromRaw(apiProgress[id]);
+    if (!entry) continue;
+    if (compareProgressEntries(entry, best) > 0) best = entry;
   }
-  return { lastViewedIndex: -1 };
+  return best;
 }
 
 function getLastViewedIndexFromApi(apiProgress: ApiProgressMap, tryKey: string | undefined, ...possibleIds: (string | null | undefined)[]): number {
@@ -79,7 +110,8 @@ function getProgressFromApi(personId: string, totalSections: number, apiProgress
   const lastIdx = entry.lastViewedIndex;
   if (lastIdx < 0) return 0;
   if (totalSections === 0) return 100;
-  return Math.min(100, Math.round(((lastIdx + 1) / totalSections) * 100));
+  const capped = Math.min(lastIdx, Math.max(0, totalSections - 1));
+  return Math.min(100, Math.round(((capped + 1) / totalSections) * 100));
 }
 
 function formatDateMMDDYYYY(value: string | null | undefined): string {
@@ -204,41 +236,6 @@ function resolveCourseRow(
     }
   }
   return row;
-}
-
-/** Section count from course record. Prefer real outline arrays over numeric “Total Sections” (rollups are often org-wide and wrong). */
-function getSectionCountFromCourse(courseData: { fields?: Record<string, unknown>; [k: string]: unknown } | undefined): number {
-  function fromObj(obj: Record<string, unknown> | undefined): number {
-    if (!obj) return 0;
-    const explicit =
-      Array.isArray(obj.trainingSections) ? obj.trainingSections
-      : Array.isArray(obj["Training Sections"]) ? obj["Training Sections"]
-      : Array.isArray(obj["Training sections"]) ? obj["Training sections"]
-      : Array.isArray(obj.training_sections) ? obj.training_sections
-      : Array.isArray(obj.Sections) ? obj.Sections
-      : Array.isArray(obj["Course Sections"]) ? obj["Course Sections"]
-      : Array.isArray(obj["Ordered Sections"]) ? obj["Ordered Sections"]
-      : undefined;
-    if (explicit && explicit.length > 0) return (explicit as unknown[]).length;
-    const totalNum = obj.totalSections ?? obj["Total Sections"] ?? obj["Total sections"] ?? obj["total sections"] ?? obj.total_sections;
-    if (typeof totalNum === "number" && totalNum >= 0) return totalNum;
-    const totalParsed = typeof totalNum === "string" ? parseInt(totalNum, 10) : NaN;
-    if (!Number.isNaN(totalParsed) && totalParsed >= 0) return totalParsed;
-    for (const [key, val] of Object.entries(obj)) {
-      if (/total.*section|section.*total/i.test(key) && (typeof val === "number" || (typeof val === "string" && /^\d+$/.test(val)))) {
-        const n = typeof val === "number" ? val : parseInt(val, 10);
-        if (!Number.isNaN(n) && n >= 0) return n;
-      }
-    }
-    return 0;
-  }
-  const fromFields = fromObj(courseData?.fields as Record<string, unknown> | undefined);
-  if (fromFields > 0) return fromFields;
-  const asRecord = courseData as Record<string, unknown> | undefined;
-  if (asRecord && typeof asRecord === "object" && !Array.isArray(asRecord) && asRecord.fields !== asRecord) {
-    return fromObj(asRecord);
-  }
-  return 0;
 }
 
 const REC_ID = /^rec[A-Za-z0-9]{14}$/;
@@ -370,9 +367,8 @@ function BlockInner() {
           const keys = Object.keys(p as object);
           LOG("2b. sessionStorage parsed keys", keys);
           setApiProgress((prev) => {
-            const useStorage = !prev || Object.keys(prev).length === 0;
-            if (useStorage) LOG("2c. sessionStorage applying apiProgress", keys);
-            return useStorage ? (p as ApiProgressMap) : prev;
+            LOG("2c. sessionStorage merge apiProgress", keys);
+            return mergeProgressMaps(prev, p as ApiProgressMap) as ApiProgressMap;
           });
         }
       }
@@ -381,20 +377,20 @@ function BlockInner() {
     }
   }, []);
 
-  useEffect(() => {
+  const refetchProgressFromApi = useCallback(() => {
     const base = progressApiUrl();
     if (!base) {
       LOG("3. fetch skipped", "no progress API URL");
-      return;
+      return Promise.resolve();
     }
-    const personId = paramsFromUrl.personId;
-    if (!personId) {
-      LOG("3. fetch skipped", "no personId in paramsFromUrl");
-      return;
+    const pid = urlParams.personId ?? paramsFromUrl.personId;
+    if (!pid) {
+      LOG("3. fetch skipped", "no personId");
+      return Promise.resolve();
     }
-    const url = base + (base.includes("?") ? "&" : "?") + "personId=" + encodeURIComponent(personId);
-    LOG("3. fetch starting", { personId, url: url.slice(0, 80) + "..." });
-    fetch(url, { cache: "no-store" })
+    const url = base + (base.includes("?") ? "&" : "?") + "personId=" + encodeURIComponent(pid);
+    LOG("3. fetch starting", { personId: pid, url: url.slice(0, 80) + "..." });
+    return fetch(url, { cache: "no-store" })
       .then((r) => {
         LOG("3b. fetch response", { ok: r.ok, status: r.status });
         return r.ok ? r.json() : Promise.reject(new Error("Progress fetch failed " + r.status));
@@ -403,12 +399,55 @@ function BlockInner() {
         const next = normalizeProgressResponse(data);
         const keyCount = next && typeof next === "object" ? Object.keys(next).length : 0;
         LOG("3c. fetch success", { keyCount, keys: next && typeof next === "object" ? Object.keys(next) : [] });
-        setApiProgress(next);
+        setApiProgress((prev) => {
+          let merged = mergeProgressMaps(prev, next);
+          try {
+            if (typeof window !== "undefined") {
+              const s = sessionStorage.getItem("lms_progress_data");
+              if (s) {
+                const parsed = JSON.parse(s) as Record<string, StoredProgressEntry>;
+                if (parsed && typeof parsed === "object" && !Array.isArray(parsed)) {
+                  merged = mergeProgressMaps(merged, parsed);
+                }
+              }
+            }
+            if (typeof window !== "undefined" && merged && typeof merged === "object" && Object.keys(merged).length > 0) {
+              sessionStorage.setItem("lms_progress_data", JSON.stringify(merged));
+            }
+          } catch {
+            /* ignore */
+          }
+          return merged as ApiProgressMap;
+        });
       })
       .catch((err) => {
         LOG("3d. fetch error", String(err?.message || err));
       });
-  }, [paramsFromUrl.personId]);
+  }, [urlParams.personId, paramsFromUrl.personId]);
+
+  /** After hydration, `urlParams` has the real query string (SSR first paint often had nulls). */
+  useEffect(() => {
+    if (!mounted) return;
+    void refetchProgressFromApi();
+  }, [mounted, refetchProgressFromApi]);
+
+  useEffect(() => {
+    if (!mounted) return;
+    const onVisibility = () => {
+      if (typeof document !== "undefined" && document.visibilityState === "visible") {
+        void refetchProgressFromApi();
+      }
+    };
+    const onPageShow = () => {
+      void refetchProgressFromApi();
+    };
+    window.addEventListener("visibilitychange", onVisibility);
+    window.addEventListener("pageshow", onPageShow);
+    return () => {
+      window.removeEventListener("visibilitychange", onVisibility);
+      window.removeEventListener("pageshow", onPageShow);
+    };
+  }, [mounted, refetchProgressFromApi]);
 
   const selectedTrackId = paramsFromUrl.recordId ?? urlParams.recordId ?? (typeof window !== "undefined" ? getUrlParams().recordId : null);
   const personId = paramsFromUrl.personId ?? urlParams.personId ?? (typeof window !== "undefined" ? getUrlParams().personId : null);
@@ -525,8 +564,6 @@ function BlockInner() {
 
   const trackFields = selectedTrack?.fields ?? {};
   const courses = getLinkedCoursesFromTrackFields(trackFields as Record<string, unknown>);
-  const apiKeys = useMemo(() => (apiProgress ? Object.keys(apiProgress) : []), [apiProgress]);
-
   useEffect(() => {
     if (!personId || !selectedTrackId) {
       setAssignmentTotalSectionsForTrack(null);
@@ -569,9 +606,9 @@ function BlockInner() {
     courses.forEach((courseRef, i) => {
       const courseAirtableId = getLinkedRecordId(courseRef as { id?: string } | string);
       const courseData = resolveCourseRow(allCoursesList, courseRef, courseAirtableId, i, courses.length);
-      let n = getSectionCountFromCourse(courseData);
+      let n = countReaderOutlineSlotsFromCourse(courseData);
       if (n === 0 && courseRef && typeof courseRef === "object") {
-        n = getSectionCountFromCourse(courseRef as { fields?: Record<string, unknown>; [k: string]: unknown });
+        n = countReaderOutlineSlotsFromCourse(courseRef as { fields?: Record<string, unknown> });
       }
       s += n;
     });
@@ -588,47 +625,21 @@ function BlockInner() {
           : trackTotalSectionsRaw
         : null;
 
-  const defaultSectionsPerCourse =
-    trackCapForDefaults != null && courses.length > 0 ? Math.max(1, Math.round(trackCapForDefaults / courses.length)) : 0;
-
-  /** Same section slot count for progress % and overall track denominator (avoids “0 of 65” when the outline is 11). */
-  const perCourseSectionSlotCounts = useMemo(() => {
-    let maxViewedFromApi = 0;
-    if (personId) {
-      courses.forEach((courseRef, i) => {
-        const courseAirtableId = getLinkedRecordId(courseRef as { id?: string } | string);
-        const courseData = resolveCourseRow(allCoursesList, courseRef, courseAirtableId, i, courses.length);
-        const collected = collectCourseIdsForProgress(courseRef, courseData);
-        const indexKey = i < apiKeys.length ? apiKeys[i] : undefined;
-        const possibleIds = [indexKey, courseAirtableId ?? undefined, courseData?.id ?? undefined, ...collected].filter((x): x is string => Boolean(x && typeof x === "string"));
-        const tryKey = (courseAirtableId ?? (courseData as { id?: string })?.id ?? indexKey) as string | undefined;
-        const lastIdx = getLastViewedIndexFromApi(apiProgress, tryKey, ...possibleIds);
-        if (lastIdx >= 0) maxViewedFromApi = Math.max(maxViewedFromApi, lastIdx + 1);
-      });
-    }
-    const fallbackSectionsFromApi = maxViewedFromApi > 0 ? maxViewedFromApi : 0;
+  /**
+   * Section counts from each course’s Training Sections outline only (matches the course reader).
+   * Do not inflate from assignment caps / rollups — that made track cards (e.g. 27%) disagree with in-course (100%).
+   */
+  const outlineSectionSlotsPerCourse = useMemo(() => {
     return courses.map((courseRef, i) => {
       const courseAirtableId = getLinkedRecordId(courseRef as { id?: string } | string);
       const courseData = resolveCourseRow(allCoursesList, courseRef, courseAirtableId, i, courses.length);
-      const fields = courseData?.fields as Record<string, unknown> | undefined;
-      const recordIdVal = fields && (fields.recordId ?? fields.RecordID);
-      const idForNav = courseData?.id ?? (recordIdVal != null ? String(recordIdVal) : null) ?? courseAirtableId;
-      let sectionCount = getSectionCountFromCourse(courseData);
+      let sectionCount = countReaderOutlineSlotsFromCourse(courseData);
       if (sectionCount === 0 && courseRef && typeof courseRef === "object") {
-        sectionCount = getSectionCountFromCourse(courseRef as { fields?: Record<string, unknown>; [k: string]: unknown });
-      }
-      if (sectionCount === 0 && defaultSectionsPerCourse > 1) sectionCount = defaultSectionsPerCourse;
-      const collected = collectCourseIdsForProgress(courseRef, courseData);
-      const indexKey = i < apiKeys.length ? apiKeys[i] : undefined;
-      const possibleIds = [indexKey, courseAirtableId ?? undefined, idForNav ?? undefined, ...collected].filter((x): x is string => Boolean(x && typeof x === "string"));
-      const tryKey = (courseAirtableId ?? idForNav ?? indexKey) as string | undefined;
-      const lastIdx = personId ? getLastViewedIndexFromApi(apiProgress, tryKey, ...possibleIds) : -1;
-      if (sectionCount === 0 && fallbackSectionsFromApi > 0 && lastIdx >= 0) {
-        sectionCount = Math.max(fallbackSectionsFromApi, lastIdx + 1);
+        sectionCount = countReaderOutlineSlotsFromCourse(courseRef as { fields?: Record<string, unknown> });
       }
       return sectionCount > 0 ? sectionCount : 1;
     });
-  }, [courses, allCoursesList, defaultSectionsPerCourse, personId, apiProgress, apiKeys]);
+  }, [courses, allCoursesList]);
 
   const courseProgressValues = useMemo(() => {
     if (!personId) {
@@ -639,15 +650,15 @@ function BlockInner() {
       const firstRef = courses[0];
       const firstId = getLinkedRecordId(firstRef as { id?: string } | string);
       const firstResolved = resolveCourseRow(allCoursesList, firstRef, firstId, 0, courses.length);
-      const sectionCountFirst = getSectionCountFromCourse(firstResolved as { fields?: Record<string, unknown>; [k: string]: unknown });
-      const fromRef = getSectionCountFromCourse(firstRef as { fields?: Record<string, unknown>; [k: string]: unknown });
+      const sectionCountFirst = countReaderOutlineSlotsFromCourse(firstResolved as { fields?: Record<string, unknown> });
+      const fromRef = countReaderOutlineSlotsFromCourse(firstRef as { fields?: Record<string, unknown> });
       const raw = firstResolved as Record<string, unknown> | undefined;
       const rawKeys = raw ? Object.keys(raw) : [];
       const rawFields = raw?.fields as Record<string, unknown> | undefined;
       const fieldKeys = rawFields ? Object.keys(rawFields) : [];
       LOG("6. debug first course", {
         allCoursesListLength: allCoursesList.length,
-        slotsUsed: perCourseSectionSlotCounts[0],
+        slotsUsed: outlineSectionSlotsPerCourse[0],
         sectionCountFromResolved: sectionCountFirst,
         sectionCountFromRef: fromRef,
         topLevelKeys: rawKeys,
@@ -659,35 +670,38 @@ function BlockInner() {
         assignmentTotalSectionsForTrack,
       });
     }
+    const mapForCards = mergeProgressMaps(apiProgress, readProgressMapFromSessionStorage() ?? undefined) as ApiProgressMap;
     const values = courses.map((courseRef, i) => {
       const courseAirtableId = getLinkedRecordId(courseRef as { id?: string } | string);
       const courseData = resolveCourseRow(allCoursesList, courseRef, courseAirtableId, i, courses.length);
       const fields = courseData?.fields as Record<string, unknown> | undefined;
       const recordIdVal = fields && (fields.recordId ?? fields.RecordID);
       const idForNav = courseData?.id ?? (recordIdVal != null ? String(recordIdVal) : null) ?? courseAirtableId;
-      const sectionCount = perCourseSectionSlotCounts[i] ?? 1;
+      const sectionCount = outlineSectionSlotsPerCourse[i] ?? 1;
       const collected = collectCourseIdsForProgress(courseRef, courseData);
-      const indexKey = i < apiKeys.length ? apiKeys[i] : undefined;
-      const possibleIds = [indexKey, courseAirtableId ?? undefined, idForNav ?? undefined, ...collected].filter((x): x is string => Boolean(x && typeof x === "string"));
-      const tryKey = (courseAirtableId ?? idForNav ?? indexKey) as string | undefined;
-      return getProgressFromApi(personId, sectionCount, apiProgress, tryKey, ...possibleIds);
+      const possibleIds = [courseAirtableId ?? undefined, idForNav ?? undefined, ...collected].filter((x): x is string => Boolean(x && typeof x === "string"));
+      const tryKey = (courseAirtableId ?? idForNav) as string | undefined;
+      return getProgressFromApi(personId, sectionCount, mapForCards, tryKey, ...possibleIds);
     });
-    LOG("6. courseProgressValues", { coursesCount: courses.length, apiKeysCount: apiKeys.length, values, apiKeys: apiKeys.slice(0, 3) });
+    LOG("6. courseProgressValues", {
+      coursesCount: courses.length,
+      progressKeyCount: apiProgress ? Object.keys(apiProgress).length : 0,
+      values,
+    });
     return values;
   }, [
     personId,
     courses,
     allCoursesList,
     apiProgress,
-    apiKeys,
-    perCourseSectionSlotCounts,
+    outlineSectionSlotsPerCourse,
     sumOutlineFromCourses,
     trackCapForDefaults,
     assignmentTotalSectionsForTrack,
   ]);
 
   const trackRollup = useMemo(() => {
-    const sumSlots = perCourseSectionSlotCounts.reduce((a, b) => a + b, 0) || courses.length;
+    const sumSlots = outlineSectionSlotsPerCourse.reduce((a, b) => a + b, 0) || courses.length;
     const canonical =
       assignmentTotalSectionsForTrack != null && assignmentTotalSectionsForTrack > 0
         ? assignmentTotalSectionsForTrack
@@ -707,33 +721,20 @@ function BlockInner() {
       LOG("7. debug first course fields", { fieldKeys, sectionLike, trainingSections: f?.trainingSections, trainingSectionsType: typeof f?.trainingSections });
     }
 
-    let viewedSlots = 0;
+    /** Slot-weighted sum of each course’s % (same numbers as the per-course cards), not “whole sections started”. */
+    let weightedSlots = 0;
     courses.forEach((courseRef, i) => {
-      const sectionCount = perCourseSectionSlotCounts[i] ?? 1;
-      const courseAirtableId = getLinkedRecordId(courseRef as { id?: string } | string);
-      const courseData = resolveCourseRow(allCoursesList, courseRef, courseAirtableId, i, courses.length);
-      const progressPct = courseProgressValues[i] ?? 0;
-      const fields = courseData?.fields as Record<string, unknown> | undefined;
-      const recordIdVal = fields && (fields.recordId ?? fields.RecordID);
-      const idForNav = courseData?.id ?? (recordIdVal != null ? String(recordIdVal) : null) ?? courseAirtableId;
-      const collected = collectCourseIdsForProgress(courseRef, courseData);
-      const indexKey = i < apiKeys.length ? apiKeys[i] : undefined;
-      const possibleIds = [indexKey, courseAirtableId ?? undefined, idForNav ?? undefined, ...collected].filter((x): x is string => Boolean(x && typeof x === "string"));
-      const tryKey = (courseAirtableId ?? idForNav ?? indexKey) as string | undefined;
-      const entry = getProgressEntryFromApi(apiProgress, tryKey, ...possibleIds);
-      const lastIdx = entry.lastViewedIndex;
-      const isComplete = Boolean(
-        entry.completedAt || (sectionCount > 0 && lastIdx >= 0 && lastIdx + 1 >= sectionCount)
-      );
-      if (isComplete) viewedSlots += sectionCount;
-      else viewedSlots += Math.min(sectionCount, Math.round((progressPct / 100) * sectionCount));
+      const sectionCount = outlineSectionSlotsPerCourse[i] ?? 1;
+      const progressPct = Math.min(100, Math.max(0, courseProgressValues[i] ?? 0));
+      weightedSlots += (progressPct / 100) * sectionCount;
     });
     const totalSections = canonical ?? sumSlots;
-    let totalViewed = viewedSlots;
+    let totalViewed = weightedSlots;
     if (canonical != null && sumSlots > 0 && canonical !== sumSlots) {
-      totalViewed = Math.min(canonical, Math.round((viewedSlots / sumSlots) * canonical));
+      totalViewed = (weightedSlots / sumSlots) * canonical;
     }
     LOG("7. tally", {
+      weightedSlots,
       totalViewed,
       totalSections,
       sumSlots,
@@ -746,13 +747,13 @@ function BlockInner() {
     courses,
     allCoursesList,
     apiProgress,
-    apiKeys,
-    perCourseSectionSlotCounts,
+    outlineSectionSlotsPerCourse,
     courseProgressValues,
     assignmentTotalSectionsForTrack,
   ]);
 
   const courseDatesValues = useMemo(() => {
+    const mapForDates = mergeProgressMaps(apiProgress, readProgressMapFromSessionStorage() ?? undefined) as ApiProgressMap;
     return courses.map((courseRef, i) => {
       const courseAirtableId = getLinkedRecordId(courseRef as { id?: string } | string);
       const courseData = resolveCourseRow(allCoursesList, courseRef, courseAirtableId, i, courses.length);
@@ -760,12 +761,11 @@ function BlockInner() {
       const recordIdVal = fields && (fields.recordId ?? fields.RecordID);
       const idForNav = courseData?.id ?? (recordIdVal != null ? String(recordIdVal) : null) ?? courseAirtableId;
       const collected = collectCourseIdsForProgress(courseRef, courseData);
-      const indexKey = i < apiKeys.length ? apiKeys[i] : undefined;
-      const possibleIds = [indexKey, courseAirtableId ?? undefined, idForNav ?? undefined, ...collected].filter((x): x is string => Boolean(x && typeof x === "string"));
-      const tryKey = (courseAirtableId ?? idForNav ?? indexKey) as string | undefined;
-      return getProgressEntryFromApi(apiProgress, tryKey, ...possibleIds);
+      const possibleIds = [courseAirtableId ?? undefined, idForNav ?? undefined, ...collected].filter((x): x is string => Boolean(x && typeof x === "string"));
+      const tryKey = (courseAirtableId ?? idForNav) as string | undefined;
+      return getProgressEntryFromApi(mapForDates, tryKey, ...possibleIds);
     });
-  }, [courses, allCoursesList, apiProgress, apiKeys]);
+  }, [courses, allCoursesList, apiProgress]);
 
   if (!mounted) {
     return (
@@ -896,11 +896,15 @@ function BlockInner() {
             <CardHeader>
               <div className="flex items-center justify-between mb-2">
                 <CardTitle className="text-lg">Overall Progress</CardTitle>
-                <span className="text-2xl font-bold text-primary">{overallProgress}%</span>
+                <span
+                  className={cn(
+                    "text-2xl font-bold",
+                    overallProgress <= 0 ? "text-[#E61C39]" : "text-[#228B22]"
+                  )}
+                >
+                  {overallProgress}%
+                </span>
               </div>
-              <p className="text-sm text-muted-foreground mb-2">
-                {trackRollup.totalViewed} of {trackRollup.totalSections} section{trackRollup.totalSections !== 1 ? "s" : ""} complete
-              </p>
               <Progress value={overallProgress} className="h-3" />
             </CardHeader>
           </Card>
@@ -985,22 +989,13 @@ function BlockInner() {
                           <span
                             className={cn(
                               "text-sm font-bold",
-                              courseProgress === 100 ? "text-[#228B22]" : "text-[#E61C39]"
+                              courseProgress <= 0 ? "text-[#E61C39]" : "text-[#228B22]"
                             )}
                           >
                             {courseProgress}%
                           </span>
                         </div>
-                        <div
-                          className={cn(
-                            "h-2 w-full",
-                            courseProgress === 100
-                              ? "[&>div]:first:!bg-muted [&>div]:last:!bg-[#228B22] [&>div>*]:!bg-[#228B22]"
-                              : "[&>div]:first:!bg-muted [&>div]:last:!bg-[#E61C39] [&>div>*]:!bg-[#E61C39]"
-                          )}
-                        >
-                          <Progress value={courseProgress} className="h-2 w-full" />
-                        </div>
+                        <Progress value={courseProgress} className="h-2 w-full" />
                         <Button
                           className={cn(
                             "w-full mt-4 transition-colors !text-white",

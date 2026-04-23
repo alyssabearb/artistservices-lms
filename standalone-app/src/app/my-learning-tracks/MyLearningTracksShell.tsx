@@ -5,6 +5,7 @@ import { useEffect, useMemo, useState } from "react";
 import { MyLearningProfileStrip } from "@/components/lms/MyLearningProfileStrip";
 import { MyAssignedTracksGrid } from "@/components/lms/MyAssignedTracksGrid";
 import { getLearningTrackImageUrlFromFields, getLinkedRecordId } from "@/lib/lms-fields";
+import { countReaderOutlineSlotsFromCourse } from "@/lib/lms-course-section-count";
 
 type AssignmentRow = { id?: string; fields?: Record<string, unknown> };
 type ContactRow = { id: string; fields: Record<string, unknown> };
@@ -18,6 +19,8 @@ export default function MyLearningTracksShell() {
   const [assignments, setAssignments] = useState<AssignmentRow[]>([]);
   const [aStatus, setAStatus] = useState<"pending" | "success" | "error">("pending");
   const [trackCourseIdsById, setTrackCourseIdsById] = useState<Map<string, string[]>>(new Map());
+  /** Per-track outline section counts (course order), for weighted progress matching track-view. */
+  const [outlineSlotsByTrackId, setOutlineSlotsByTrackId] = useState<Map<string, number[]>>(new Map());
   /** Full track rows are fetched per id (assignments only store link ids, not expanded fields like Track Image). */
   const [trackImageUrlById, setTrackImageUrlById] = useState<Map<string, string | null>>(new Map());
 
@@ -109,6 +112,40 @@ export default function MyLearningTracksShell() {
     };
   }, [assignments, uniqueTrackIds]);
 
+  useEffect(() => {
+    let cancelled = false;
+    if (trackCourseIdsById.size === 0) {
+      setOutlineSlotsByTrackId(new Map());
+      return;
+    }
+    (async () => {
+      const allCourseIds = [...new Set([...trackCourseIdsById.values()].flat())].filter(Boolean);
+      const slotsByCourseId = new Map<string, number>();
+      await Promise.all(
+        allCourseIds.map(async (cid) => {
+          try {
+            const r = await fetch(`/api/courses/${encodeURIComponent(cid)}`).then((x) => x.json());
+            if (r && typeof r === "object" && "error" in r && (r as { error?: unknown }).error != null) return;
+            const n = countReaderOutlineSlotsFromCourse(r as { fields?: Record<string, unknown> });
+            slotsByCourseId.set(cid, n > 0 ? n : 1);
+          } catch {
+            slotsByCourseId.set(cid, 1);
+          }
+        })
+      );
+      if (cancelled) return;
+      const byTrack = new Map<string, number[]>();
+      for (const [tid, cids] of trackCourseIdsById.entries()) {
+        const arr = cids.map((id) => slotsByCourseId.get(id) ?? 1);
+        if (arr.length > 0) byTrack.set(tid, arr);
+      }
+      setOutlineSlotsByTrackId(byTrack);
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [trackCourseIdsById]);
+
   if (!personId) {
     return (
       <div className="w-full max-w-full px-4 md:px-6 py-12 text-center">
@@ -131,6 +168,7 @@ export default function MyLearningTracksShell() {
         rawAssignments={assignments}
         assignmentsStatus={aStatus}
         trackCourseIdsById={trackCourseIdsById}
+        outlineSlotsByTrackId={outlineSlotsByTrackId}
         trackImageUrlById={trackImageUrlById}
       />
     </>

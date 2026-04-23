@@ -9,6 +9,8 @@ import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
 import { cn } from "@/lib/utils";
 import { buildTrackViewHref, resolveFinishTrackRecordId } from "@/lib/lms-track-nav";
+import { ComprehensionCheckSection } from "@/components/lms/ComprehensionCheckSection";
+import { getComprehensionChoicesRaw, getComprehensionQuestionMode, isSurveySectionFields } from "@/lib/lms-fields";
 
 var SECTION_VIEW_WEBHOOK_URL =
   typeof process !== "undefined" && process.env.NEXT_PUBLIC_SECTION_VIEW_URL
@@ -271,12 +273,31 @@ export default function Block(props) {
 
   const [checklistState, setChecklistState] = useState({});
   const [galleryIndex, setGalleryIndex] = useState(0);
+  const [compQuizPassed, setCompQuizPassed] = useState(false);
 
   useEffect(function () { setGalleryIndex(0); }, [sectionId]);
+  useEffect(function () { setCompQuizPassed(false); }, [sectionId]);
 
   useEffect(function () {
-    if (personId && courseId && sectionId) recordSectionView(personId, courseId, sectionIds.length > 0 ? sectionIds : [sectionId], sectionId);
-  }, [personId, courseId, sectionId, sectionIds.join(",")]);
+    if (!personId || !courseId || !sectionId || !section) return;
+    var mode = getComprehensionQuestionMode(section.fields);
+    var surveyRequired = isSurveySectionFields(section.fields);
+    if (mode && Boolean(props.comprehensionPersistenceDisabled)) return;
+    var hydrated = Boolean(props.comprehensionHydratedPass);
+    if (mode && !hydrated && !compQuizPassed) return;
+    if (surveyRequired && !Boolean(props.surveyHydratedPass)) return;
+    recordSectionView(personId, courseId, sectionIds.length > 0 ? sectionIds : [sectionId], sectionId);
+  }, [
+    personId,
+    courseId,
+    sectionId,
+    sectionIds.join(","),
+    section,
+    props.comprehensionHydratedPass,
+    props.surveyHydratedPass,
+    compQuizPassed,
+    props.comprehensionPersistenceDisabled,
+  ]);
 
   useEffect(function () {
     if (!sectionId) {
@@ -431,6 +452,48 @@ export default function Block(props) {
     var rids = getResourceIdsForSection ? getResourceIdsForSection(id) : [];
     if (rids && rids.length > 0) p.set("resourceIds", rids.join(","));
     window.location.href = TRAINING_SESSION_PATH + "?" + p.toString();
+  }
+
+  var comprehensionModeEarly = getComprehensionQuestionMode(fields);
+  if (comprehensionModeEarly) {
+    var qTextComp = get("Question") || getByPartial("question");
+    var questionStr = qTextComp != null ? String(qTextComp) : "";
+    var choicesV = getComprehensionChoicesRaw(fields);
+    var choicesStr =
+      Array.isArray(choicesV)
+        ? JSON.stringify(choicesV)
+        : typeof choicesV === "string"
+          ? choicesV
+          : choicesV != null
+            ? String(choicesV)
+            : "";
+    var outerPadComp = embedInCourseDetail ? "w-full max-w-full px-0 py-3 md:py-4" : "w-full max-w-full px-4 md:px-6 lg:px-8 py-6 md:py-8";
+    return React.createElement(
+      "div",
+      { className: outerPadComp },
+      !embedInCourseDetail
+        ? React.createElement(Button, { variant: "ghost", onClick: goBack, className: "mb-4 -ml-2 no-print" }, React.createElement(ArrowLeft, { className: "mr-2 h-4 w-4" }), " Back to All Pages")
+        : null,
+      React.createElement(ComprehensionCheckSection, {
+        recordId: sectionId,
+        mode: comprehensionModeEarly,
+        question: questionStr,
+        choicesJson: choicesStr,
+        initialPassed: Boolean(props.comprehensionHydratedPass) || compQuizPassed,
+        completedSnapshot: props.comprehensionSnapshot != null ? props.comprehensionSnapshot : null,
+        onPassed: function (snapshot) {
+          setCompQuizPassed(true);
+          try {
+            if (typeof window !== "undefined" && sectionId) {
+              window.dispatchEvent(
+                new CustomEvent("lms-comprehension-passed", { detail: { sectionId: sectionId, snapshot: snapshot } })
+              );
+            }
+          } catch (e) {}
+          if (typeof props.onComprehensionPassed === "function") props.onComprehensionPassed(snapshot);
+        },
+      })
+    );
   }
 
   function renderRichText(content) {

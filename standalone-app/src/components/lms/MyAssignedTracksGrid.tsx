@@ -9,7 +9,7 @@ import { Button } from "@/components/ui/button";
 import { Progress } from "@/components/ui/progress";
 import { BookOpen, ArrowRight, ArrowLeft, CheckCircle, Clock } from "lucide-react";
 import { cn } from "@/lib/utils";
-import { progressApiUrl } from "@/lib/progress";
+import { mergeProgressMaps, progressApiUrl, readProgressMapFromSessionStorage } from "@/lib/progress";
 import { persistTrackRecordId } from "@/lib/lms-track-nav";
 import { assignmentDisplayTotalSections } from "@/lib/lms-assignment-section-total";
 import { getLearningTrackImageUrlFromFields } from "@/lib/lms-fields";
@@ -20,6 +20,7 @@ const PAGE_SLUGS = {
 };
 
 const EMPTY_TRACK_IMAGE_MAP = new Map<string, string | null>();
+const EMPTY_OUTLINE_SLOTS_MAP = new Map<string, number[]>();
 
 type ProgressEntry = number | { lastViewedIndex?: number; completedAt?: string } | null | undefined;
 
@@ -63,42 +64,14 @@ function getTrackSectionsCompletedFromApi(
   for (const courseId of courseIds) {
     if (hasCompletedAt(apiProgress[courseId])) count += 1;
   }
-  if (count === 0 && courseIds.length > 0 && courseIds.length === Object.keys(apiProgress).length) {
-    const apiKeys = Object.keys(apiProgress);
-    for (let i = 0; i < courseIds.length && i < apiKeys.length; i++) {
-      if (hasCompletedAt(apiProgress[apiKeys[i]])) count += 1;
-    }
-  }
-  return count;
-}
-
-/** Count how many courses have any progress (lastViewedIndex >= 0), by id or by index. When courseIds is empty, use api keys with progress (capped by totalSections if provided). */
-function getTrackSectionsWithProgressFromApi(
-  courseIds: string[],
-  apiProgress: Record<string, ProgressEntry> | null,
-  totalSections?: number
-): number {
-  if (!apiProgress) return 0;
-  const allKeys = Object.keys(apiProgress);
-  const keysWithProgress = allKeys.filter((k) => getLastViewedIndexFromEntry(apiProgress[k]) >= 0);
-  if (courseIds.length === 0) {
-    if (totalSections != null && totalSections > 0) return Math.min(keysWithProgress.length, totalSections);
-    return keysWithProgress.length;
-  }
-  let count = 0;
-  for (let i = 0; i < courseIds.length; i++) {
-    const byId = getLastViewedIndexFromEntry(apiProgress[courseIds[i]]) >= 0;
-    const byIndex = i < allKeys.length && getLastViewedIndexFromEntry(apiProgress[allKeys[i]]) >= 0;
-    if (byId || byIndex) count += 1;
-  }
   return count;
 }
 
 function getTrackProgressFromApi(courseIds: string[], totalSections: number, apiProgress: Record<string, ProgressEntry> | null): number {
   if (!apiProgress) return 0;
-  const apiKeys = Object.keys(apiProgress);
   const sectionsCompleted = getTrackSectionsCompletedFromApi(courseIds, apiProgress);
-  if (totalSections > 0 && sectionsCompleted >= 0) {
+  /** Only use the “completed courses” shortcut when at least one course is actually completed (was `>= 0`, which was always true and hid partial progress). */
+  if (totalSections > 0 && sectionsCompleted > 0) {
     return Math.min(100, Math.round((sectionsCompleted / totalSections) * 100));
   }
   let viewedCount = 0;
@@ -108,20 +81,47 @@ function getTrackProgressFromApi(courseIds: string[], totalSections: number, api
       if (idx >= 0) viewedCount += idx + 1;
     }
   }
-  if (viewedCount === 0 && courseIds.length > 0 && apiKeys.length > 0) {
-    for (let i = 0; i < Math.min(courseIds.length, apiKeys.length); i++) {
-      const idx = getLastViewedIndexFromEntry(apiProgress[apiKeys[i]]);
-      if (idx >= 0) viewedCount += idx + 1;
-    }
-  }
-  if (viewedCount === 0 && apiKeys.length >= 1 && totalSections > 0) {
-    for (const key of apiKeys) {
-      const idx = getLastViewedIndexFromEntry(apiProgress[key]);
-      if (idx >= 0) viewedCount += idx + 1;
-    }
-  }
   const denom = totalSections > 0 ? totalSections : (viewedCount || 1);
   return Math.min(100, Math.round((viewedCount / denom) * 100));
+}
+
+function getCourseProgressPercentForTrackCard(courseId: string, sectionSlots: number, merged: Record<string, ProgressEntry>): number {
+  const denom = Math.max(1, sectionSlots);
+  const e1 = merged[courseId];
+  const lastIdx = getLastViewedIndexFromEntry(e1);
+  const completed = hasCompletedAt(e1);
+  if (completed) return 100;
+  if (lastIdx < 0) return 0;
+  const capped = Math.min(lastIdx, denom - 1);
+  return Math.min(100, Math.round(((capped + 1) / denom) * 100));
+}
+
+/**
+ * Slot-weighted overall % (same idea as `trackRollup` in TrackViewClient) when we have outline section counts per course.
+ */
+function getTrackWeightedOverallPercent(
+  courseIds: string[],
+  outlineSlotsPerCourse: number[] | undefined,
+  merged: Record<string, ProgressEntry> | null,
+  assignmentTotalSections: number
+): number | null {
+  if (!merged || courseIds.length === 0) return null;
+  if (!outlineSlotsPerCourse || outlineSlotsPerCourse.length !== courseIds.length) return null;
+  const slots = outlineSlotsPerCourse.map((n) => (n > 0 ? n : 1));
+  const sumSlots = slots.reduce((a, b) => a + b, 0);
+  if (sumSlots <= 0) return null;
+  let weightedSlots = 0;
+  for (let i = 0; i < courseIds.length; i++) {
+    const pct = getCourseProgressPercentForTrackCard(courseIds[i], slots[i], merged);
+    weightedSlots += (pct / 100) * slots[i];
+  }
+  const canonical = assignmentTotalSections > 0 ? assignmentTotalSections : null;
+  const totalSections = canonical ?? sumSlots;
+  let totalViewed = weightedSlots;
+  if (canonical != null && sumSlots > 0 && canonical !== sumSlots) {
+    totalViewed = (weightedSlots / sumSlots) * canonical;
+  }
+  return Math.min(100, Math.round((100 * totalViewed) / Math.max(1, totalSections)));
 }
 
 /** Due / completion on cards: M/D/YY, no leading zeros (e.g. 4/20/26). */
@@ -190,6 +190,8 @@ export type MyAssignedTracksGridProps = {
   rawAssignments: { id?: string; fields?: Record<string, unknown> }[];
   assignmentsStatus: "pending" | "success" | "error";
   trackCourseIdsById: Map<string, string[]>;
+  /** From `/api/courses/:id` per course — same slot weights as track-view overall progress. */
+  outlineSlotsByTrackId?: Map<string, number[]>;
   /** From `/api/tracks/:id` — assignments usually only include link ids, not track fields like Track Image. */
   trackImageUrlById?: Map<string, string | null>;
 };
@@ -199,6 +201,7 @@ export function MyAssignedTracksGrid({
   rawAssignments,
   assignmentsStatus: status,
   trackCourseIdsById,
+  outlineSlotsByTrackId = EMPTY_OUTLINE_SLOTS_MAP,
   trackImageUrlById = EMPTY_TRACK_IMAGE_MAP,
 }: MyAssignedTracksGridProps) {
   const [apiProgress, setApiProgress] = useState<Record<string, ProgressEntry> | null>(null);
@@ -212,7 +215,19 @@ export function MyAssignedTracksGrid({
     const url = base + (base.includes("?") ? "&" : "?") + "personId=" + encodeURIComponent(personId);
     fetch(url)
       .then((r) => (r.ok ? r.json() : Promise.reject(new Error("Progress fetch failed"))))
-      .then((data) => setApiProgress(normalizeProgressResponse(data)))
+      .then((data) => {
+        const next = normalizeProgressResponse(data);
+        setApiProgress((prev) => {
+          let merged = mergeProgressMaps(prev, next);
+          try {
+            const s = readProgressMapFromSessionStorage();
+            if (s) merged = mergeProgressMaps(merged, s);
+          } catch {
+            /* ignore */
+          }
+          return merged;
+        });
+      })
       .catch(() => setApiProgress({}));
   }, [personId]);
 
@@ -301,12 +316,20 @@ export function MyAssignedTracksGrid({
       const total = t.assignments.length;
       const sectionCount = t.totalSections > 0 ? t.totalSections : total;
       const completedCount = t.assignments.filter((a) => /completed/i.test(a.status ?? "")).length;
-      const sectionsCompletedFromApi = getTrackSectionsCompletedFromApi(t.courseIds, apiProgress);
+      const mergedProgress = mergeProgressMaps(apiProgress, readProgressMapFromSessionStorage() ?? undefined);
+      const sectionsCompletedFromApi = getTrackSectionsCompletedFromApi(t.courseIds, mergedProgress);
       const sectionsViewed = Math.min(sectionsCompletedFromApi, t.totalSections || 999);
-      const fromApi = getTrackProgressFromApi(t.courseIds, t.totalSections, apiProgress);
-      const progressPercent = fromApi > 0
+      const outlineSlots = outlineSlotsByTrackId.get(t.trackId);
+      const weighted = getTrackWeightedOverallPercent(t.courseIds, outlineSlots, mergedProgress, t.totalSections);
+      const fromApi = weighted != null ? weighted : getTrackProgressFromApi(t.courseIds, t.totalSections, mergedProgress);
+      const hasProgressPayload = Boolean(mergedProgress && Object.keys(mergedProgress).length > 0);
+      const progressPercent = hasProgressPayload
         ? fromApi
-        : sectionCount > 0 ? Math.round((completedCount / sectionCount) * 100) : (total > 0 ? Math.round((completedCount / total) * 100) : 0);
+        : sectionCount > 0
+          ? Math.round((completedCount / sectionCount) * 100)
+          : total > 0
+            ? Math.round((completedCount / total) * 100)
+            : 0;
       const isComplete = total > 0 && completedCount === total;
       const displayCompletionDate = isComplete && t.assignments.some((a) => a.completionDate)
         ? t.assignments.find((a) => a.completionDate)?.completionDate ?? t.dueDate
@@ -321,7 +344,7 @@ export function MyAssignedTracksGrid({
         completionDate: displayCompletionDate,
       };
     });
-  }, [personId, assignmentRecords, trackCourseIdsById, trackImageUrlById, apiProgress]);
+  }, [personId, assignmentRecords, trackCourseIdsById, trackImageUrlById, outlineSlotsByTrackId, apiProgress]);
 
   const goBack = () => {
     if (typeof window !== "undefined") window.location.href = PAGE_SLUGS.myLearning;
@@ -420,9 +443,13 @@ export function MyAssignedTracksGrid({
                     <div>
                       <div className="flex justify-between text-sm text-muted-foreground mb-1">
                         <span>Progress</span>
-                        <span>
-                          {t.sectionsViewed} of {t.totalSections > 0 ? t.totalSections : t.assignments.length} section
-                          {(t.totalSections > 0 ? t.totalSections : t.assignments.length) !== 1 ? "s" : ""} complete
+                        <span
+                          className={cn(
+                            "font-semibold",
+                            t.progressPercent <= 0 ? "text-[#E61C39]" : "text-[#228B22]"
+                          )}
+                        >
+                          {t.progressPercent}%
                         </span>
                       </div>
                       <Progress value={t.progressPercent} className="h-2" />

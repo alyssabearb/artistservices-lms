@@ -3,17 +3,35 @@
  * Course detail (standalone: /api/courses + progress API + optional inline section reader via ?section=).
  */
 import React, { useEffect, useState, useMemo, useCallback, useRef } from "react";
+import { getEmailFromRecord } from "@/lib/contact-email";
+import { shouldBypassComprehensionPersistence } from "@/lib/comprehension-demo";
+import {
+  readComprehensionProgress,
+  writeComprehensionProgress,
+  type ComprehensionViewSnapshot,
+} from "@/lib/comprehension-storage";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { BookOpen, ArrowLeft, Clock } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Progress } from "@/components/ui/progress";
-import { normalizeProgressResponse, progressApiUrl } from "@/lib/progress";
+import { cn } from "@/lib/utils";
+import {
+  mergeProgressMaps,
+  normalizeProgressResponse,
+  progressApiUrl,
+  readProgressMapFromSessionStorage,
+  lastViewedIndexFromEntry,
+  type ProgressEntry,
+} from "@/lib/progress";
+import { postSectionViewProgress } from "@/lib/section-view-webhook";
 import {
   extractSectionTitleFromFields,
+  getComprehensionQuestionMode,
   getLinkedLearningTrackIdsFromCourseFields,
   getLinkedRecordId,
   getLinkedResourceIdsFromSectionFields,
+  isSurveySectionFields,
 } from "@/lib/lms-fields";
 import {
   buildTrackViewHref,
@@ -49,15 +67,13 @@ function getLastViewedIndexFromApi(courseId: string, sectionIds: string[], apiPr
   return Math.min(Math.max(-1, idx), sectionIds.length - 1);
 }
 
-function getCourseProgressPercentFromApi(courseId: string, sectionIds: string[], apiProgress: Record<string, number | { lastViewedIndex: number }> | null): number {
-  const total = sectionIds.length;
-  if (total <= 0) return 0;
-  const lastIdx = getLastViewedIndexFromApi(courseId, sectionIds, apiProgress);
-  if (lastIdx < 0) return 0;
-  return Math.round(((lastIdx + 1) / total) * 100);
-}
-
-type SectionRow = { id: string; title: string; resourceIds: string[] };
+type SectionRow = {
+  id: string;
+  title: string;
+  resourceIds: string[];
+  comprehensionMode: ReturnType<typeof getComprehensionQuestionMode>;
+  surveyRequired: boolean;
+};
 
 export default function Block() {
   const sp = useSearchParams();
@@ -75,22 +91,96 @@ export default function Block() {
   const [apiProgress, setApiProgress] = useState<Record<string, number | { lastViewedIndex: number }> | null>(null);
   const [selectedCourse, setSelectedCourse] = useState<{ id?: string; fields?: Record<string, unknown> } | null>(null);
   const [courseStatus, setCourseStatus] = useState<"pending" | "success" | "error">("pending");
-  const [sectionMetaById, setSectionMetaById] = useState<Record<string, { title: string; resourceIds: string[] }>>({});
+  const [sectionMetaById, setSectionMetaById] = useState<
+    Record<
+      string,
+      {
+        title: string;
+        resourceIds: string[];
+        comprehensionMode: ReturnType<typeof getComprehensionQuestionMode>;
+        surveyRequired: boolean;
+      }
+    >
+  >({});
+  const [comprehensionPassBySection, setComprehensionPassBySection] = useState<Record<string, boolean>>({});
+  const [comprehensionSnapshotBySection, setComprehensionSnapshotBySection] = useState<
+    Record<string, ComprehensionViewSnapshot | null>
+  >({});
+  const [surveyPassBySection, setSurveyPassBySection] = useState<Record<string, boolean>>({});
+  const [viewerEmail, setViewerEmail] = useState<string | null>(null);
   const readerAnchorRef = useRef<HTMLDivElement | null>(null);
-  const userChoseOutlineOnly = useRef(false);
+
+  const demoComprehensionBypass = useMemo(() => shouldBypassComprehensionPersistence(viewerEmail), [viewerEmail]);
 
   useEffect(() => {
+    if (!personId) {
+      setViewerEmail(null);
+      return;
+    }
+    let cancelled = false;
+    fetch(`/api/contacts/${encodeURIComponent(personId)}`)
+      .then((r) => (r.ok ? r.json() : Promise.reject()))
+      .then((rec: { fields?: Record<string, unknown> }) => {
+        if (cancelled || !rec?.fields) return;
+        const em = getEmailFromRecord(rec as { fields: Record<string, unknown> });
+        setViewerEmail(em || null);
+      })
+      .catch(() => {
+        if (!cancelled) setViewerEmail(null);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [personId]);
+  const userChoseOutlineOnly = useRef(false);
+
+  const fetchProgressForPerson = useCallback((person: string) => {
     const base = progressApiUrl();
-    if (!base || !personId) {
+    if (!base) return Promise.resolve();
+    const url = base + (base.includes("?") ? "&" : "?") + "personId=" + encodeURIComponent(person);
+    return fetch(url)
+      .then((r) => (r.ok ? r.json() : Promise.reject(new Error("Progress fetch failed"))))
+      .then((data) => {
+        const next = normalizeProgressResponse(data) as Record<string, ProgressEntry>;
+        setApiProgress((prev) => {
+          let merged = mergeProgressMaps(prev, next);
+          try {
+            const s = typeof window !== "undefined" ? window.sessionStorage.getItem("lms_progress_data") : null;
+            if (s) {
+              const parsed = JSON.parse(s) as Record<string, ProgressEntry>;
+              if (parsed && typeof parsed === "object" && !Array.isArray(parsed)) {
+                merged = mergeProgressMaps(merged, parsed);
+              }
+            }
+          } catch {
+            /* ignore */
+          }
+          return merged as Record<string, number | { lastViewedIndex: number }>;
+        });
+      })
+      .catch(() => setApiProgress({}));
+  }, []);
+
+  useEffect(() => {
+    if (!personId) {
       setApiProgress(null);
       return;
     }
-    const url = base + (base.includes("?") ? "&" : "?") + "personId=" + encodeURIComponent(personId);
-    fetch(url)
-      .then((r) => (r.ok ? r.json() : Promise.reject(new Error("Progress fetch failed"))))
-      .then((data) => setApiProgress(normalizeProgressResponse(data) as Record<string, number | { lastViewedIndex: number }>))
-      .catch(() => setApiProgress({}));
-  }, [personId]);
+    if (!progressApiUrl()) {
+      setApiProgress(null);
+      return;
+    }
+    void fetchProgressForPerson(personId);
+  }, [personId, fetchProgressForPerson]);
+
+  /** Remote progress can lag behind section-view webhooks; refetch after navigating pages. */
+  useEffect(() => {
+    if (!personId || !sectionFromUrl || !courseIdFromUrl || !progressApiUrl()) return;
+    const t = window.setTimeout(() => {
+      void fetchProgressForPerson(personId);
+    }, 800);
+    return () => window.clearTimeout(t);
+  }, [personId, sectionFromUrl, courseIdFromUrl, fetchProgressForPerson]);
 
   useEffect(() => {
     if (!courseIdFromUrl) {
@@ -172,12 +262,22 @@ export default function Block() {
       .then((r) => (r.ok ? r.json() : Promise.reject()))
       .then((data: { records?: { id: string; fields: Record<string, unknown> }[] }) => {
         if (cancelled) return;
-        const map: Record<string, { title: string; resourceIds: string[] }> = {};
+        const map: Record<
+          string,
+          {
+            title: string;
+            resourceIds: string[];
+            comprehensionMode: ReturnType<typeof getComprehensionQuestionMode>;
+            surveyRequired: boolean;
+          }
+        > = {};
         for (const rec of data.records ?? []) {
           const t = extractSectionTitleFromFields(rec.fields);
           map[rec.id] = {
             title: stripYearSuffix(t ?? "Session"),
             resourceIds: getLinkedResourceIdsFromSectionFields(rec.fields),
+            comprehensionMode: getComprehensionQuestionMode(rec.fields),
+            surveyRequired: isSurveySectionFields(rec.fields),
           };
         }
         setSectionMetaById(map);
@@ -189,6 +289,84 @@ export default function Block() {
       cancelled = true;
     };
   }, [courseIdFromUrl, sectionIdsInOrder.join(",")]);
+
+  useEffect(() => {
+    if (!personId || !courseIdFromUrl || sectionIdsInOrder.length === 0) {
+      setComprehensionPassBySection({});
+      setComprehensionSnapshotBySection({});
+      return;
+    }
+    const nextPass: Record<string, boolean> = {};
+    const nextSnap: Record<string, ComprehensionViewSnapshot | null> = {};
+    for (const sid of sectionIdsInOrder) {
+      const { passed, snapshot } = readComprehensionProgress(personId, courseIdFromUrl, sid, {
+        bypassPersistence: demoComprehensionBypass,
+      });
+      if (passed) nextPass[sid] = true;
+      if (snapshot) nextSnap[sid] = snapshot;
+    }
+    setComprehensionPassBySection(nextPass);
+    setComprehensionSnapshotBySection(nextSnap);
+  }, [personId, courseIdFromUrl, sectionIdsInOrder.join(","), demoComprehensionBypass]);
+
+  const fetchSurveySubmitted = useCallback(
+    async (sid: string): Promise<boolean> => {
+      if (!personId) return false;
+      const res = await fetch(
+        `/api/surveys/status?personId=${encodeURIComponent(personId)}&sectionId=${encodeURIComponent(sid)}`,
+        { cache: "no-store" }
+      );
+      if (!res.ok) return false;
+      const data = (await res.json()) as { submitted?: boolean };
+      return Boolean(data.submitted);
+    },
+    [personId]
+  );
+
+  useEffect(() => {
+    if (!personId || !courseIdFromUrl || sectionIdsInOrder.length === 0) {
+      setSurveyPassBySection({});
+      return;
+    }
+    const surveyIds = sectionIdsInOrder.filter((sid) => Boolean(sectionMetaById[sid]?.surveyRequired));
+    if (surveyIds.length === 0) {
+      setSurveyPassBySection({});
+      return;
+    }
+    let cancelled = false;
+    Promise.all(
+      surveyIds.map(async (sid) => ({ sid, submitted: await fetchSurveySubmitted(sid).catch(() => false) }))
+    ).then((rows) => {
+      if (cancelled) return;
+      const next: Record<string, boolean> = {};
+      for (const r of rows) {
+        if (r.submitted) next[r.sid] = true;
+      }
+      setSurveyPassBySection(next);
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [personId, courseIdFromUrl, sectionIdsInOrder.join(","), sectionMetaById, fetchSurveySubmitted]);
+
+  useEffect(() => {
+    const sid = sectionFromUrl && sectionIdsInOrder.includes(sectionFromUrl) ? sectionFromUrl : null;
+    if (!sid || !sectionMetaById[sid]?.surveyRequired) return;
+    if (surveyPassBySection[sid]) return;
+    let cancelled = false;
+    const run = async () => {
+      const ok = await fetchSurveySubmitted(sid).catch(() => false);
+      if (!cancelled && ok) {
+        setSurveyPassBySection((p) => ({ ...p, [sid]: true }));
+      }
+    };
+    void run();
+    const t = window.setInterval(() => void run(), 5000);
+    return () => {
+      cancelled = true;
+      window.clearInterval(t);
+    };
+  }, [sectionFromUrl, sectionIdsInOrder.join(","), sectionMetaById, surveyPassBySection, fetchSurveySubmitted]);
 
   useEffect(() => {
     userChoseOutlineOnly.current = false;
@@ -208,13 +386,19 @@ export default function Block() {
     const fields = (o && (o.fields as Record<string, unknown>)) ?? o ?? {};
     const sid = id ?? `sec-${idx}`;
     const meta = sectionMetaById[sid];
+    const compMode = meta?.comprehensionMode ?? getComprehensionQuestionMode(fields as Record<string, unknown>);
+    const surveyRequired = meta?.surveyRequired ?? isSurveySectionFields(fields as Record<string, unknown>);
     const fallbackTitle = extractSectionTitleFromFields(fields as Record<string, unknown>) ?? `Page ${idx + 1}`;
     return {
       id: sid,
       title: meta?.title ?? stripYearSuffix(String(fallbackTitle)),
       resourceIds: meta?.resourceIds?.length ? meta.resourceIds : getResourceIdsFromSection(s),
+      comprehensionMode: compMode,
+      surveyRequired,
     };
   });
+
+  const tocSections = useMemo(() => sectionList.filter((s) => !s.comprehensionMode), [sectionList]);
 
   const courseMaterialIds = courseMaterialItems.map((m) => m.id).filter(Boolean) as string[];
   useEffect(() => {
@@ -232,24 +416,52 @@ export default function Block() {
     window.location.href = buildTrackViewHref(personId, rid);
   };
 
-  const courseProgress =
-    personId && courseIdFromUrl ? getCourseProgressPercentFromApi(courseIdFromUrl, sectionIdsInOrder, apiProgress) : 0;
-  const progressSectionIndex =
-    personId && courseIdFromUrl ? getLastViewedIndexFromApi(courseIdFromUrl, sectionIdsInOrder, apiProgress) : -1;
-  const isFullyComplete = sectionList.length > 0 && progressSectionIndex >= sectionList.length - 1;
-
   const idSet = useMemo(() => new Set(sectionIdsInOrder), [sectionIdsInOrder.join(",")]);
 
   /** Open reader only when `section` is present (so “Back to outline” can hide it). */
   const activeReaderSectionId =
     sectionFromUrl && idSet.has(sectionFromUrl) ? sectionFromUrl : null;
 
+  const apiProgressLastIdx =
+    personId && courseIdFromUrl ? getLastViewedIndexFromApi(courseIdFromUrl, sectionIdsInOrder, apiProgress) : -1;
+  const progressMapLocal = typeof window !== "undefined" ? readProgressMapFromSessionStorage() : null;
+  const sessionLastIdx =
+    courseIdFromUrl && progressMapLocal ? lastViewedIndexFromEntry(progressMapLocal[courseIdFromUrl]) : -1;
+  const readerSlotIndex =
+    activeReaderSectionId != null ? sectionIdsInOrder.indexOf(activeReaderSectionId) : -1;
+  /** Furthest slot: API, monotonic session bumps (see useEffect below), and current page when in the reader. */
+  const rawProgressSectionIndex = Math.max(
+    apiProgressLastIdx,
+    sessionLastIdx,
+    readerSlotIndex >= 0 ? readerSlotIndex : -1
+  );
+  const firstBlockedGateIndex = useMemo(() => {
+    if (rawProgressSectionIndex < 0 || sectionIdsInOrder.length === 0) return -1;
+    const upper = Math.min(rawProgressSectionIndex, sectionIdsInOrder.length - 1);
+    for (let i = 0; i <= upper; i++) {
+      const sid = sectionIdsInOrder[i];
+      const isCompBlocked = Boolean(sectionMetaById[sid]?.comprehensionMode && !comprehensionPassBySection[sid]);
+      const isSurveyBlocked = Boolean(sectionMetaById[sid]?.surveyRequired && !surveyPassBySection[sid]);
+      if (isCompBlocked || isSurveyBlocked) return i;
+    }
+    return -1;
+  }, [rawProgressSectionIndex, sectionIdsInOrder, sectionMetaById, comprehensionPassBySection, surveyPassBySection]);
+  const progressSectionIndex =
+    firstBlockedGateIndex >= 0 ? Math.min(rawProgressSectionIndex, firstBlockedGateIndex - 1) : rawProgressSectionIndex;
+  const courseProgress =
+    personId && courseIdFromUrl && sectionIdsInOrder.length > 0
+      ? progressSectionIndex < 0
+        ? 0
+        : Math.round(((progressSectionIndex + 1) / sectionIdsInOrder.length) * 100)
+      : 0;
+  const isFullyComplete = sectionIdsInOrder.length > 0 && progressSectionIndex >= sectionIdsInOrder.length - 1;
+
   const defaultSectionIdForBootstrap = useMemo(() => {
-    if (sectionList.length === 0) return null;
-    if (isFullyComplete) return sectionList[sectionList.length - 1]?.id ?? null;
-    const idx = progressSectionIndex >= 0 ? Math.min(progressSectionIndex, sectionList.length - 1) : 0;
-    return sectionList[idx]?.id ?? sectionList[0]?.id ?? null;
-  }, [sectionList, progressSectionIndex, isFullyComplete]);
+    if (sectionIdsInOrder.length === 0) return null;
+    if (isFullyComplete) return sectionIdsInOrder[sectionIdsInOrder.length - 1] ?? null;
+    const idx = progressSectionIndex >= 0 ? Math.min(progressSectionIndex, sectionIdsInOrder.length - 1) : 0;
+    return sectionIdsInOrder[idx] ?? sectionIdsInOrder[0] ?? null;
+  }, [sectionIdsInOrder, progressSectionIndex, isFullyComplete]);
 
   const buildCourseHref = useCallback(
     (overrides?: Record<string, string | null | undefined>) => {
@@ -271,11 +483,11 @@ export default function Block() {
   );
 
   useEffect(() => {
-    if (!courseIdFromUrl || sectionList.length === 0 || sectionFromUrl || userChoseOutlineOnly.current) return;
+    if (!courseIdFromUrl || sectionIdsInOrder.length === 0 || sectionFromUrl || userChoseOutlineOnly.current) return;
     const def = defaultSectionIdForBootstrap;
     if (!def) return;
     router.replace(buildCourseHref({ section: def }));
-  }, [courseIdFromUrl, sectionList.length, sectionFromUrl, defaultSectionIdForBootstrap, router, buildCourseHref]);
+  }, [courseIdFromUrl, sectionIdsInOrder.length, sectionFromUrl, defaultSectionIdForBootstrap, router, buildCourseHref]);
 
   const openSection = useCallback(
     (sectionId: string) => {
@@ -296,6 +508,39 @@ export default function Block() {
     readerAnchorRef.current.scrollIntoView({ behavior: "smooth", block: "start" });
   }, [activeReaderSectionId]);
 
+  /** Monotonic furthest page: merging into session never lowers lastViewedIndex when reviewing earlier pages. */
+  useEffect(() => {
+    if (!personId || !courseIdFromUrl || !activeReaderSectionId || sectionIdsInOrder.length === 0) return;
+    const blockedByComp = Boolean(
+      sectionMetaById[activeReaderSectionId]?.comprehensionMode && !comprehensionPassBySection[activeReaderSectionId]
+    );
+    const blockedBySurvey = Boolean(
+      sectionMetaById[activeReaderSectionId]?.surveyRequired && !surveyPassBySection[activeReaderSectionId]
+    );
+    if (blockedByComp || blockedBySurvey) return;
+    const slot = sectionIdsInOrder.indexOf(activeReaderSectionId);
+    if (slot < 0) return;
+    try {
+      const raw = window.sessionStorage.getItem("lms_progress_data");
+      const parsed = raw ? (JSON.parse(raw) as Record<string, unknown>) : {};
+      const safe = parsed && typeof parsed === "object" && !Array.isArray(parsed) ? parsed : {};
+      const merged = mergeProgressMaps(safe as Record<string, ProgressEntry>, {
+        [courseIdFromUrl]: { lastViewedIndex: slot },
+      });
+      window.sessionStorage.setItem("lms_progress_data", JSON.stringify(merged));
+    } catch {
+      /* ignore */
+    }
+  }, [
+    personId,
+    courseIdFromUrl,
+    activeReaderSectionId,
+    sectionIdsInOrder.join(","),
+    sectionMetaById,
+    comprehensionPassBySection,
+    surveyPassBySection,
+  ]);
+
   const getResourceIdsForSection = useCallback(
     (sid: string) => sectionMetaById[sid]?.resourceIds ?? sectionList.find((r) => r.id === sid)?.resourceIds ?? [],
     [sectionMetaById, sectionList]
@@ -309,18 +554,113 @@ export default function Block() {
     [router, buildCourseHref]
   );
 
+  const handleComprehensionPassed = useCallback(
+    (snapshot?: ComprehensionViewSnapshot) => {
+      if (!activeReaderSectionId) return;
+      setComprehensionPassBySection((p) => ({ ...p, [activeReaderSectionId]: true }));
+      if (snapshot) {
+        setComprehensionSnapshotBySection((p) => ({ ...p, [activeReaderSectionId]: snapshot }));
+        if (!demoComprehensionBypass && personId && courseIdFromUrl) {
+          writeComprehensionProgress(personId, courseIdFromUrl, activeReaderSectionId, snapshot);
+        }
+      }
+    },
+    [activeReaderSectionId, personId, courseIdFromUrl, demoComprehensionBypass]
+  );
+
+  const sectionAdvanceBlocked = Boolean(
+    activeReaderSectionId &&
+      ((sectionMetaById[activeReaderSectionId]?.comprehensionMode &&
+        !comprehensionPassBySection[activeReaderSectionId]) ||
+        (sectionMetaById[activeReaderSectionId]?.surveyRequired &&
+          !surveyPassBySection[activeReaderSectionId]))
+  );
+
+  const comprehensionHydratedPass = Boolean(
+    activeReaderSectionId && comprehensionPassBySection[activeReaderSectionId]
+  );
+  const surveyHydratedPass = Boolean(activeReaderSectionId && surveyPassBySection[activeReaderSectionId]);
+
+  const activeComprehensionSnapshot =
+    activeReaderSectionId != null ? comprehensionSnapshotBySection[activeReaderSectionId] ?? null : null;
+
   const handleFinishCourse = useCallback(() => {
-    if (personId && courseIdFromUrl) {
-      fetch(COMPLETE_API_URL, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ personId, courseId: courseIdFromUrl }),
-      }).catch(() => {});
-    }
     if (typeof window === "undefined") return;
     const rid = resolveFinishTrackRecordId({ trackIdFromUrl, linkedLearningTrackIds });
-    window.location.href = buildTrackViewHref(personId, rid);
-  }, [personId, courseIdFromUrl, trackIdFromUrl, linkedLearningTrackIds]);
+    const href = buildTrackViewHref(personId, rid);
+    const pid = personId ?? undefined;
+    const courseId = courseIdFromUrl ?? undefined;
+    const lastIdx = sectionIdsInOrder.length > 0 ? sectionIdsInOrder.length - 1 : -1;
+    const lastSectionId =
+      lastIdx >= 0
+        ? activeReaderSectionId && sectionIdsInOrder.includes(activeReaderSectionId)
+          ? activeReaderSectionId
+          : sectionIdsInOrder[lastIdx]
+        : null;
+
+    const networkMs = 4500;
+    const abortableFetch = (url: string, init: RequestInit) => {
+      const ac = new AbortController();
+      const t = window.setTimeout(() => ac.abort(), networkMs);
+      return fetch(url, { ...init, signal: ac.signal }).finally(() => window.clearTimeout(t));
+    };
+
+    if (pid && courseId) {
+      const freeResponses = Object.entries(comprehensionSnapshotBySection)
+        .map(([sid, snap]) => {
+          const question = snap?.question != null ? String(snap.question).trim() : "";
+          const answer = snap?.freeSubmitted != null ? String(snap.freeSubmitted).trim() : "";
+          if (!question || !answer) return null;
+          return { sectionId: sid, question, answer };
+        })
+        .filter((x): x is { sectionId: string; question: string; answer: string } => Boolean(x));
+      if (rid && freeResponses.length > 0) {
+        void fetch("/api/assignments/complete-summary", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            personId: pid,
+            trackId: rid,
+            courseId,
+            freeResponses,
+          }),
+        }).catch(() => {});
+      }
+      void abortableFetch(COMPLETE_API_URL, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ personId: pid, courseId }),
+      }).catch(() => {});
+      if (lastSectionId != null && lastIdx >= 0) {
+        void postSectionViewProgress({
+          personId: pid,
+          courseId,
+          sectionIds: sectionIdsInOrder,
+          viewedSectionId: lastSectionId,
+        }).catch(() => {});
+      }
+      try {
+        const raw = window.sessionStorage.getItem("lms_progress_data");
+        const parsed = raw ? (JSON.parse(raw) as Record<string, unknown>) : {};
+        const safe = parsed && typeof parsed === "object" && !Array.isArray(parsed) ? parsed : {};
+        const merged = mergeProgressMaps(safe as Record<string, ProgressEntry>, {
+          [courseId]: { lastViewedIndex: lastIdx, completedAt: new Date().toISOString() },
+        });
+        window.sessionStorage.setItem("lms_progress_data", JSON.stringify(merged));
+      } catch {
+        /* ignore */
+      }
+    }
+    window.location.href = href;
+  }, [
+    personId,
+    courseIdFromUrl,
+    trackIdFromUrl,
+    linkedLearningTrackIds,
+    activeReaderSectionId,
+    comprehensionSnapshotBySection,
+    sectionIdsInOrder.join(","),
+  ]);
 
   if (!courseIdFromUrl) {
     return (
@@ -380,22 +720,27 @@ export default function Block() {
             </span>
             <span className="flex items-center gap-2">
               <BookOpen className="h-4 w-4 shrink-0" />
-              {sectionList.length} {sectionList.length === 1 ? "page" : "pages"}
+              {tocSections.length} {tocSections.length === 1 ? "page" : "pages"}
             </span>
           </div>
           <Card className="bg-accent/50 mb-5">
             <CardHeader className="py-4">
               <div className="flex items-center justify-between mb-2">
                 <CardTitle className="text-base font-semibold">Section Progress</CardTitle>
-                <span className="text-lg font-bold text-primary">{courseProgress}%</span>
+                <span
+                  className={cn(
+                    "text-lg font-bold",
+                    courseProgress <= 0 ? "text-[#E61C39]" : "text-[#228B22]"
+                  )}
+                >
+                  {courseProgress}%
+                </span>
               </div>
-              <div className="w-full [&>div]:first:!bg-muted [&>div]:last:!bg-[#E61C39] [&>div>*]:!bg-[#E61C39]">
-                <Progress value={courseProgress} className="h-3 w-full" />
-              </div>
+              <Progress value={courseProgress} className="h-3 w-full" />
             </CardHeader>
           </Card>
 
-          {sectionList.length === 0 ? (
+          {tocSections.length === 0 ? (
             <Card>
               <CardContent className="py-12 text-center">
                 <BookOpen className="mx-auto h-12 w-12 text-muted-foreground mb-4" />
@@ -408,10 +753,13 @@ export default function Block() {
               <div className="relative mb-0">
                 <div className="absolute left-[11px] top-2 bottom-2 w-0.5 bg-border" aria-hidden />
                 <ul className="space-y-0">
-                  {sectionList.map((section, idx) => {
+                  {tocSections.map((section, idx) => {
+                    const fullIdx = sectionIdsInOrder.indexOf(section.id);
                     const isCurrent = Boolean(activeReaderSectionId === section.id);
+                    const isLastToc = idx === tocSections.length - 1;
                     const isViewed =
-                      progressSectionIndex >= 0 && idx < progressSectionIndex || (isFullyComplete && idx === sectionList.length - 1);
+                      (progressSectionIndex >= 0 && fullIdx >= 0 && fullIdx < progressSectionIndex) ||
+                      (isFullyComplete && isLastToc);
                     const circleStyle = isCurrent
                       ? { borderColor: "#000", backgroundColor: "#E61C39", color: "#fff" }
                       : isViewed
@@ -452,6 +800,11 @@ export default function Block() {
                 sectionIds={sectionIdsInOrder}
                 personId={personId ?? undefined}
                 embedInCourseDetail
+                comprehensionHydratedPass={comprehensionHydratedPass}
+                surveyHydratedPass={surveyHydratedPass}
+                comprehensionSnapshot={activeComprehensionSnapshot}
+                comprehensionPersistenceDisabled={demoComprehensionBypass}
+                onComprehensionPassed={handleComprehensionPassed}
                 getResourceIdsForSection={getResourceIdsForSection}
                 onBackToOutline={backToOutlineOnly}
                 onNavigateEmbedSection={handleNavigateEmbedSection}
@@ -465,6 +818,8 @@ export default function Block() {
               resourceIds={getResourceIdsForSection(activeReaderSectionId)}
               personId={personId}
               embedInCourseDetail
+              sectionAdvanceBlocked={sectionAdvanceBlocked}
+              comprehensionPersistenceDisabled={demoComprehensionBypass}
               getResourceIdsForSection={getResourceIdsForSection}
               onNavigateEmbedSection={handleNavigateEmbedSection}
               onFinishCourse={handleFinishCourse}

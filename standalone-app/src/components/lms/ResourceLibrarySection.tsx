@@ -8,7 +8,12 @@ import { Card, CardContent } from "@/components/ui/card";
 import { ChevronLeft, ChevronRight, Download, ArrowRight, FileText, Image as ImageIcon, Calendar, X } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
-import { getLinkedResourceIdsFromSectionFields } from "@/lib/lms-fields";
+import { getComprehensionQuestionMode, getLinkedResourceIdsFromSectionFields } from "@/lib/lms-fields";
+import {
+  readComprehensionProgress,
+  writeComprehensionProgress,
+  type ComprehensionViewSnapshot,
+} from "@/lib/comprehension-storage";
 
 var TRAINING_SESSION_PATH = "/training-session";
 var COURSE_READER_PATH = "/section-detail";
@@ -486,6 +491,8 @@ export default function Block(props: Record<string, unknown>) {
       ? (props.onNavigateEmbedSection as (id: string) => void)
       : null;
   const onFinishCourse = typeof props.onFinishCourse === "function" ? (props.onFinishCourse as () => void) : null;
+  const sectionAdvanceBlockedProp = props.sectionAdvanceBlocked as boolean | undefined;
+  const comprehensionPersistenceDisabled = Boolean(props.comprehensionPersistenceDisabled);
   const getResourceIdsForSection =
     typeof props.getResourceIdsForSection === "function"
       ? (props.getResourceIdsForSection as (id: string) => string[])
@@ -493,8 +500,57 @@ export default function Block(props: Record<string, unknown>) {
 
   const [derivedResourceIds, setDerivedResourceIds] = useState<string[]>([]);
   const [sectionSurveyLike, setSectionSurveyLike] = useState(false);
+  const [internalComprehensionAdvanceBlocked, setInternalComprehensionAdvanceBlocked] = useState(false);
   const [resourcesData, setResourcesData] = useState<{ pages: { items: unknown[] }[] } | null>(null);
   const [resourcesStatus, setResourcesStatus] = useState("pending");
+
+  useEffect(() => {
+    if (typeof sectionAdvanceBlockedProp === "boolean") {
+      setInternalComprehensionAdvanceBlocked(false);
+      return;
+    }
+    if (!embedInCourseDetail || !sectionId) {
+      setInternalComprehensionAdvanceBlocked(false);
+      return;
+    }
+    let cancelled = false;
+    fetch("/api/sections/" + encodeURIComponent(sectionId))
+      .then((r) => (r.ok ? r.json() : Promise.reject()))
+      .then((data: { fields?: Record<string, unknown> }) => {
+        if (cancelled || !data?.fields) return;
+        const mode = getComprehensionQuestionMode(data.fields);
+        if (!mode) {
+          setInternalComprehensionAdvanceBlocked(false);
+          return;
+        }
+        const { passed } = readComprehensionProgress(personId, courseId, sectionId, {
+          bypassPersistence: comprehensionPersistenceDisabled,
+        });
+        setInternalComprehensionAdvanceBlocked(!passed);
+      })
+      .catch(() => {
+        if (!cancelled) setInternalComprehensionAdvanceBlocked(false);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [embedInCourseDetail, sectionId, personId, courseId, sectionAdvanceBlockedProp, comprehensionPersistenceDisabled]);
+
+  useEffect(() => {
+    function onPassed(ev: Event) {
+      const ce = ev as CustomEvent<{ sectionId?: string; snapshot?: ComprehensionViewSnapshot }>;
+      if (ce.detail?.sectionId !== sectionId) return;
+      setInternalComprehensionAdvanceBlocked(false);
+      if (personId && courseId && sectionId && ce.detail.snapshot && !comprehensionPersistenceDisabled) {
+        writeComprehensionProgress(personId, courseId, sectionId, ce.detail.snapshot, {
+          bypassPersistence: comprehensionPersistenceDisabled,
+        });
+      }
+    }
+    if (typeof window === "undefined") return;
+    window.addEventListener("lms-comprehension-passed", onPassed as EventListener);
+    return () => window.removeEventListener("lms-comprehension-passed", onPassed as EventListener);
+  }, [sectionId, personId, courseId, comprehensionPersistenceDisabled]);
 
   useEffect(() => {
     if (!embedInCourseDetail || !sectionId) {
@@ -600,6 +656,11 @@ export default function Block(props: Record<string, unknown>) {
   }
 
   const hasAny = resourcesForGrid.length > 0;
+  const sectionAdvanceBlocked =
+    embedInCourseDetail &&
+    (typeof sectionAdvanceBlockedProp === "boolean"
+      ? sectionAdvanceBlockedProp
+      : internalComprehensionAdvanceBlocked);
   /** On embedded course reader, section nav (incl. Finish) lives here under resources only. */
   const showSectionNavInLibrary = embedInCourseDetail && sectionIds.length >= 1;
   const currentIndex = sectionId && sectionIds.length > 0 ? sectionIds.indexOf(sectionId) : -1;
@@ -647,7 +708,7 @@ export default function Block(props: Record<string, unknown>) {
         <span className="text-sm text-muted-foreground whitespace-nowrap px-1">
           {currentIndex + 1} of {sectionIds.length}
         </span>
-        {isLastSection ? (
+        {sectionAdvanceBlocked ? null : isLastSection ? (
           <Button
             type="button"
             variant="default"
@@ -660,7 +721,14 @@ export default function Block(props: Record<string, unknown>) {
             <ChevronRight className="ml-2 h-4 w-4 shrink-0" />
           </Button>
         ) : (
-          <Button variant="outline" onClick={() => { if (nextId) goToSection(nextId); }} disabled={!nextId} className="flex-1 max-sm:text-sm">
+          <Button
+            variant="outline"
+            onClick={() => {
+              if (nextId) goToSection(nextId);
+            }}
+            disabled={!nextId}
+            className="flex-1 max-sm:text-sm"
+          >
             Next Page
             <ChevronRight className="ml-2 h-4 w-4 shrink-0" />
           </Button>

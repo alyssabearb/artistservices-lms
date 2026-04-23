@@ -86,6 +86,31 @@ export async function getRecordsByIds(tableName: string, ids: string[]): Promise
   return all;
 }
 
+export async function updateRecordFields(
+  tableName: string,
+  recordId: string,
+  fields: Record<string, unknown>
+): Promise<AirtableRecord> {
+  const baseId = requireEnv("AIRTABLE_BASE_ID");
+  const tableEnc = encodeURIComponent(tableName);
+  const u = `${AIRTABLE_HOST}/${baseId}/${tableEnc}/${encodeURIComponent(recordId)}`;
+  const token = requireEnv("AIRTABLE_PAT");
+  const res = await fetch(u, {
+    method: "PATCH",
+    headers: {
+      Authorization: `Bearer ${token}`,
+      "Content-Type": "application/json",
+    },
+    cache: "no-store",
+    body: JSON.stringify({ fields }),
+  });
+  if (!res.ok) {
+    const text = await res.text();
+    throw new Error(`Airtable HTTP ${res.status}: ${text.slice(0, 400)}`);
+  }
+  return res.json() as Promise<AirtableRecord>;
+}
+
 /** Single-field exact match (field name without braces in env). `normalizedEmail` must already be lowercased / normalized. */
 export function contactLookupFormula(normalizedEmail: string): string {
   const e = normalizedEmail.replace(/'/g, "''");

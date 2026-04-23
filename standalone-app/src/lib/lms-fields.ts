@@ -1,5 +1,10 @@
 /** Shared field / link helpers aligned with Softr LMS blocks. */
 
+import { parseChoicesJson, parseCorrectIdsFromField } from "@/lib/comprehension";
+
+/** Set on section JSON by our API after server-side detection (client-safe; not in Airtable). */
+export const LMS_COMPREHENSION_MODE_FIELD = "_lmsComprehensionMode";
+
 export function getLinkedRecordId(
   linked: { id?: string; recordId?: string; label?: string; RecordID?: string } | string | unknown[] | null | undefined
 ): string | null {
@@ -249,6 +254,116 @@ export function getAssigneeLinkedIds(f: Record<string, unknown> | undefined): st
     }
   }
   return [...new Set(ids)];
+}
+
+/** Normalize Airtable single-select "Section Type" to a plain string. */
+export function normalizeSectionTypeValue(raw: unknown): string {
+  if (raw == null) return "";
+  let v: unknown = raw;
+  if (typeof v === "object" && v !== null && !Array.isArray(v)) {
+    const o = v as Record<string, unknown>;
+    v = o.name ?? o.value ?? o.label ?? "";
+  }
+  if (Array.isArray(v) && v.length > 0) v = v[0];
+  if (typeof v === "object" && v !== null && !Array.isArray(v)) {
+    const o = v as Record<string, unknown>;
+    v = o.name ?? o.value ?? o.label ?? "";
+  }
+  return String(v ?? "").trim().toLowerCase();
+}
+
+/** Long text used as the quiz prompt (field name may vary slightly). */
+export function getComprehensionQuestionText(fields: Record<string, unknown> | undefined): string {
+  if (!fields) return "";
+  const direct = fields["Question"] ?? fields["quiz question"] ?? fields["Quiz Question"];
+  if (direct != null && String(direct).trim()) return String(direct).trim();
+  for (const [k, v] of Object.entries(fields)) {
+    const kl = k.toLowerCase();
+    if (kl.includes("choices") || kl === "correct" || kl.includes("explanation")) continue;
+    if (kl.includes("question") && typeof v === "string" && v.trim()) return v.trim();
+  }
+  return "";
+}
+
+/** Raw value for the choices field (name varies; may be string or array from tooling). */
+export function getComprehensionChoicesRaw(fields: Record<string, unknown> | undefined): unknown {
+  if (!fields) return undefined;
+  const direct = fields["Choices"] ?? fields["choices"];
+  if (direct != null) return direct;
+  for (const [k, v] of Object.entries(fields)) {
+    if (k === LMS_COMPREHENSION_MODE_FIELD) continue;
+    const kl = k.toLowerCase().replace(/\s/g, "");
+    if (kl.includes("choice") && !kl.includes("correct")) return v;
+  }
+  return undefined;
+}
+
+/** True when Section Type (normalized) clearly marks a comprehension / quiz row. */
+function sectionTypeLabelSuggestsComprehension(t: string): boolean {
+  if (!t) return false;
+  if (t.includes("comprehension")) return true;
+  if (/question\s*[-–]?\s*check/.test(t)) return true;
+  if (/knowledge\s*[-–]?\s*check/.test(t)) return true;
+  if (t.includes("questioncheck")) return true;
+  if (t.includes("comp check") || t.includes("comp-check")) return true;
+  if ((t.includes("quiz") || t.includes("mcq")) && (t.includes("check") || t.includes("section") || t.includes("comp"))) return true;
+  return false;
+}
+
+/** True when Question + Choices JSON look like a multiple-choice comprehension row. */
+function fieldsLookLikeMcqComprehension(fields: Record<string, unknown>): boolean {
+  const q = getComprehensionQuestionText(fields);
+  if (q.length < 3) return false;
+  return parseChoicesJson(getComprehensionChoicesRaw(fields)).length >= 2;
+}
+
+/**
+ * Comprehension checkpoints (Training Sections).
+ * Detects by Section Type (comprehension, question check, knowledge check, …) or by
+ * filled Question + valid multi-option Choices JSON when authors forget to set the type.
+ */
+export function getComprehensionQuestionMode(fields: Record<string, unknown> | undefined): "single" | "multi" | "free" | null {
+  if (!fields) return null;
+  const hint = fields[LMS_COMPREHENSION_MODE_FIELD];
+  if (hint === "single" || hint === "multi" || hint === "free") return hint;
+
+  const t = normalizeSectionTypeValue(fields["Section Type"] ?? fields.type ?? fields["Training Section Type"]);
+  const fromType = sectionTypeLabelSuggestsComprehension(t);
+  const fromMcqFields = fieldsLookLikeMcqComprehension(fields);
+  const q = getComprehensionQuestionText(fields);
+  const fromFreeFields =
+    q.length >= 10 &&
+    parseChoicesJson(getComprehensionChoicesRaw(fields)).length === 0 &&
+    (t.includes("free") || t.includes("open response") || t.includes("written response") || t.includes("short answer"));
+
+  if (!fromType && !fromMcqFields && !fromFreeFields) return null;
+
+  if (t.includes("multi") || t.includes("select all") || t.includes("all that apply") || t.includes("multiple")) return "multi";
+  if (
+    t.includes("free") ||
+    t.includes("open response") ||
+    t.includes("written response") ||
+    t.includes("short answer") ||
+    (fromFreeFields && !fromMcqFields)
+  ) {
+    return "free";
+  }
+  const correctIds = parseCorrectIdsFromField(fields["Correct"] ?? fields["correct"]);
+  if (correctIds.length > 1) return "multi";
+  return "single";
+}
+
+export function isComprehensionSectionFields(fields: Record<string, unknown> | undefined): boolean {
+  return getComprehensionQuestionMode(fields) != null;
+}
+
+/** Canonical survey/submission section detector shared by reader components. */
+export function isSurveySectionFields(fields: Record<string, unknown> | undefined): boolean {
+  if (!fields || typeof fields !== "object") return false;
+  const t = normalizeSectionTypeValue(
+    fields["Section Type"] ?? fields.type ?? fields["Training Section Type"] ?? fields["Section type"] ?? fields["Training section type"]
+  );
+  return t.includes("survey") || t.includes("submission");
 }
 
 /** Titles from Training Sections / session records (Airtable field names vary). */
