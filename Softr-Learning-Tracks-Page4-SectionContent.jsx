@@ -15,7 +15,7 @@
 import React, { useState, useMemo, useEffect } from "react";
 import { useRecord, q } from "@/lib/datasource";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { ArrowLeft, ChevronLeft, ChevronRight, ExternalLink, Download, Video } from "lucide-react";
+import { ArrowLeft, ChevronLeft, ChevronRight, ExternalLink, Download, Video, X } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
 import { cn } from "@/lib/utils";
@@ -285,8 +285,18 @@ export default function Block() {
 
   const [checklistState, setChecklistState] = useState({});
   const [galleryIndex, setGalleryIndex] = useState(0);
+  const [lightbox, setLightbox] = useState(null);
 
   useEffect(function () { setGalleryIndex(0); }, [sectionId]);
+  useEffect(function () { setLightbox(null); }, [sectionId]);
+  useEffect(function () {
+    if (!lightbox) return;
+    function onKey(e) {
+      if (e.key === "Escape") setLightbox(null);
+    }
+    window.addEventListener("keydown", onKey);
+    return function () { window.removeEventListener("keydown", onKey); };
+  }, [lightbox]);
 
   useEffect(function () {
     if (personId && courseId && sectionId) recordSectionView(personId, courseId, sectionIds.length > 0 ? sectionIds : [sectionId], sectionId);
@@ -320,16 +330,35 @@ export default function Block() {
   if (body != null && typeof body === "object" && !Array.isArray(body)) body = body.html || body.HTML || body.value || body.text || body.plain || body.content || null;
   if (body != null && typeof body !== "string") body = String(body);
 
+  var galleryRaw = get("gallery", "Gallery") || getByPartial("gallery");
+  var galleryImages = [];
+  if (Array.isArray(galleryRaw) && galleryRaw.length > 0) {
+    for (var gi = 0; gi < galleryRaw.length; gi++) {
+      var item = galleryRaw[gi];
+      var imgUrl = typeof item === "string" ? item : (item && item.url) ? item.url : null;
+      if (imgUrl && typeof imgUrl === "string" && imgUrl.trim()) galleryImages.push({ url: imgUrl.trim(), name: (item && (item.filename || item.name)) ? String(item.filename || item.name) : "Image " + (gi + 1) });
+    }
+  } else if (galleryRaw && typeof galleryRaw === "object" && galleryRaw.url) {
+    galleryImages.push({ url: String(galleryRaw.url).trim(), name: galleryRaw.filename || galleryRaw.name || "Image 1" });
+  }
+
   var sectionTypeRaw = get("type", "Section Type") || getByPartial("section type");
   if (sectionTypeRaw != null && typeof sectionTypeRaw === "object" && !Array.isArray(sectionTypeRaw)) sectionTypeRaw = sectionTypeRaw.name || sectionTypeRaw.value || sectionTypeRaw.label;
-  var sectionType = String(sectionTypeRaw || "Text").trim();
-  var sectionTypeLower = sectionType.toLowerCase();
-  if (sectionTypeLower === "text + links" || sectionTypeLower === "text+links" || (sectionTypeLower.indexOf("text") !== -1 && sectionTypeLower.indexOf("link") !== -1)) sectionType = "Text + Links";
-  else if (sectionTypeLower === "text + gallery" || sectionTypeLower === "text+gallery" || (sectionTypeLower.indexOf("text") !== -1 && sectionTypeLower.indexOf("gallery") !== -1)) sectionType = "Text + Gallery";
-  else if (sectionTypeLower === "text") sectionType = "Text";
-  else if (sectionTypeLower === "video" || sectionTypeLower.indexOf("video") !== -1) sectionType = "Video";
+  if (Array.isArray(sectionTypeRaw) && sectionTypeRaw.length > 0) sectionTypeRaw = sectionTypeRaw[0];
+  if (sectionTypeRaw != null && typeof sectionTypeRaw === "object" && !Array.isArray(sectionTypeRaw)) sectionTypeRaw = sectionTypeRaw.name || sectionTypeRaw.value || sectionTypeRaw.label;
+  var rawTypeLabel = String(sectionTypeRaw || "Text").trim();
+  var sectionTypeLower = rawTypeLabel.toLowerCase();
+  var sectionType = rawTypeLabel;
+  if (sectionTypeLower === "video" || sectionTypeLower.indexOf("video") !== -1) sectionType = "Video";
+  else if (sectionTypeLower === "survey" || sectionTypeLower === "submission" || sectionTypeLower === "submission link" || sectionTypeLower.indexOf("survey") !== -1 || sectionTypeLower.indexOf("submission") !== -1) sectionType = "Survey";
   else if (sectionTypeLower === "checklist") sectionType = "Checklist";
-  else if (sectionTypeLower === "survey" || sectionTypeLower === "submission" || sectionTypeLower.indexOf("survey") !== -1 || sectionTypeLower.indexOf("submission") !== -1) sectionType = "Survey";
+  else if (
+    (sectionTypeLower.indexOf("photo") !== -1 || sectionTypeLower.indexOf("infographic") !== -1) &&
+    sectionTypeLower.indexOf("gallery") === -1
+  ) sectionType = "Text + Photo";
+  else if (sectionTypeLower.indexOf("gallery") !== -1 || galleryImages.length > 0) sectionType = "Text + Gallery";
+  else if (sectionTypeLower === "text + links" || sectionTypeLower === "text+links" || (sectionTypeLower.indexOf("text") !== -1 && sectionTypeLower.indexOf("link") !== -1)) sectionType = "Text + Links";
+  else if (sectionTypeLower === "text") sectionType = "Text";
 
   var videoRaw = get("video", "Section Video") || getByPartial("video");
   var videoUrl;
@@ -362,18 +391,6 @@ export default function Block() {
   var linkedResRaw = get("linkedResources", "Linked Resources") || getByPartial("linked") || getByPartial("resource");
   var linkedArray = Array.isArray(linkedResRaw) ? linkedResRaw : [];
   var hasLinkedResources = linkedArray.length > 0;
-
-  var galleryRaw = get("gallery", "Gallery") || getByPartial("gallery");
-  var galleryImages = [];
-  if (Array.isArray(galleryRaw) && galleryRaw.length > 0) {
-    for (var gi = 0; gi < galleryRaw.length; gi++) {
-      var item = galleryRaw[gi];
-      var imgUrl = typeof item === "string" ? item : (item && item.url) ? item.url : null;
-      if (imgUrl && typeof imgUrl === "string" && imgUrl.trim()) galleryImages.push({ url: imgUrl.trim(), name: (item && (item.filename || item.name)) ? String(item.filename || item.name) : "Image " + (gi + 1) });
-    }
-  } else if (galleryRaw && typeof galleryRaw === "object" && galleryRaw.url) {
-    galleryImages.push({ url: String(galleryRaw.url).trim(), name: galleryRaw.filename || galleryRaw.name || "Image 1" });
-  }
 
   var sectionTitle = "Section";
   if (section && section.fields) {
@@ -530,6 +547,24 @@ export default function Block() {
     }
   }
 
+  if (sectionType === "Text + Photo" && galleryImages.length > 0) {
+    contentEls.push(
+      React.createElement("div", { key: "photo-inline", className: "w-full space-y-4" },
+        galleryImages.map(function (g, idx) {
+          return React.createElement("button", {
+            type: "button",
+            key: "photo-" + idx,
+            className: "block w-full rounded-lg overflow-hidden border border-border bg-muted/20 p-0 cursor-zoom-in text-left outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2",
+            onClick: function () { setLightbox({ url: g.url, name: g.name }); },
+            "aria-label": "View larger: " + g.name
+          },
+            React.createElement("img", { src: g.url, alt: g.name, className: "w-full h-auto object-contain", loading: idx > 0 ? "lazy" : undefined })
+          );
+        })
+      )
+    );
+  }
+
   if (sectionType === "Text + Gallery" && galleryImages.length > 0) {
     var galIdx = Math.min(Math.max(0, galleryIndex), galleryImages.length - 1);
     var galPrev = function () { setGalleryIndex(function (i) { return Math.max(0, i - 1); }); };
@@ -571,6 +606,30 @@ export default function Block() {
         React.createElement(CardHeader, { className: "px-0 pt-0 no-print" }, React.createElement(CardTitle, { className: "text-2xl font-bold", style: { color: "#E61C39" } }, sectionTitle)),
         React.createElement(CardContent, { className: "px-0 space-y-6" }, contentEls)
       )
-    )
+    ),
+    lightbox
+      ? React.createElement("div", {
+          className: "fixed inset-0 z-[100] flex items-center justify-center bg-black/85 p-4 no-print",
+          role: "dialog",
+          "aria-modal": "true",
+          "aria-label": "Image preview",
+          onClick: function (e) { if (e.target === e.currentTarget) setLightbox(null); }
+        },
+          React.createElement(Button, {
+            type: "button",
+            variant: "secondary",
+            size: "icon",
+            className: "absolute right-4 top-4 z-[101] rounded-full shadow-md",
+            "aria-label": "Close",
+            onClick: function () { setLightbox(null); }
+          }, React.createElement(X, { className: "h-5 w-5" })),
+          React.createElement("img", {
+            src: lightbox.url,
+            alt: lightbox.name || "",
+            className: "max-h-[min(92vh,1200px)] max-w-full w-auto object-contain rounded-md shadow-lg",
+            onClick: function (e) { e.stopPropagation(); }
+          })
+        )
+      : null
   );
 }
