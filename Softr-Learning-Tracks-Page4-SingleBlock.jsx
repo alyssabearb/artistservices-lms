@@ -47,6 +47,46 @@ function isWordExcelType(typeStr) {
   return t === "word/excel file" || t === "word/excel" || t === "document" || t === "word" || t === "excel" || t === "checklist" || t === "template" || t.indexOf("checklist") !== -1 || t.indexOf("template") !== -1 || t.indexOf("word") !== -1 || t.indexOf("excel") !== -1;
 }
 
+function lmsSectionTitleClassSingleBlock() {
+  return "text-5xl md:text-6xl font-bold tracking-tight text-[#E61C39] text-center";
+}
+
+function lmsRichTextHeadingProseSingleBlock() {
+  return (
+    "[&_h1]:!mt-4 [&_h1]:!mb-2 [&_h1]:!font-bold [&_h1]:!tracking-tight [&_h1]:!text-[#E61C39] [&_h1]:!text-4xl md:[&_h1]:!text-5xl " +
+    "[&_h2]:!mt-3 [&_h2]:!mb-2 [&_h2]:!font-bold [&_h2]:!text-[#E61C39] [&_h2]:!text-2xl md:[&_h2]:!text-3xl [&_h2]:!leading-tight " +
+    "[&_h3]:!mt-3 [&_h3]:!mb-1.5 [&_h3]:!font-semibold [&_h3]:!text-black [&_h3]:!text-xl md:[&_h3]:!text-2xl [&_h3]:!leading-snug " +
+    "[&_h4]:!mt-2 [&_h4]:!mb-1 [&_h4]:!font-semibold [&_h4]:!text-[#E61C39] [&_h4]:!text-sm " +
+    "[&_h5]:!mt-2 [&_h5]:!mb-1 [&_h5]:!font-semibold [&_h5]:!text-[#E61C39] [&_h5]:!text-xs " +
+    "[&_h6]:!mt-2 [&_h6]:!mb-1 [&_h6]:!font-semibold [&_h6]:!text-[#E61C39] [&_h6]:!text-xs"
+  );
+}
+
+function lmsAtxHeadingClassSingleBlock(depth) {
+  var d = Math.min(6, Math.max(1, depth));
+  if (d === 1) return "font-bold tracking-tight text-[#E61C39] text-4xl md:text-5xl mt-4 mb-2 leading-tight";
+  if (d === 2) return "font-bold text-[#E61C39] text-2xl md:text-3xl mt-3 mb-2 leading-tight";
+  if (d === 3) return "font-semibold text-black text-xl md:text-2xl mt-3 mb-1.5 leading-snug";
+  return "font-semibold text-[#E61C39] text-sm mt-2 mb-1 leading-snug";
+}
+
+function sanitizeRichTextHtml(html) {
+  if (!html || typeof html !== "string") return "";
+  return html
+    .replace(/<script\b[^>]*>[\s\S]*?<\/script>/gi, "")
+    .replace(/\son\w+\s*=\s*(?:"[^"]*"|'[^']*'|[^\s>]+)/gi, "");
+}
+
+function markdownLineAsHeadingOrNull(trimmedLine) {
+  if (!trimmedLine) return null;
+  var m = trimmedLine.match(/^(#{1,6})\s+(.+)$/);
+  if (!m) return null;
+  var depth = Math.min(6, Math.max(1, m[1].length));
+  var inner = m[2];
+  var cls = lmsAtxHeadingClassSingleBlock(depth);
+  return "<h" + depth + " class=\"" + cls + "\">" + inner + "</h" + depth + ">";
+}
+
 function markdownToHtml(md) {
   if (!md || typeof md !== "string") return "";
   let out = md.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
@@ -68,7 +108,9 @@ function markdownToHtml(md) {
     } else {
       if (inList) { result.push("</ul>"); inList = false; }
       const t = line.trim();
-      result.push(t === "" ? "<p style=\"margin:0.15rem 0\">&nbsp;</p>" : "<p style=\"margin:0.35rem 0 0.5rem 0;line-height:1.6\">" + t + "</p>");
+      const headingHtml = markdownLineAsHeadingOrNull(t);
+      if (headingHtml) result.push(headingHtml);
+      else result.push(t === "" ? "<p style=\"margin:0.15rem 0\">&nbsp;</p>" : "<p style=\"margin:0.35rem 0 0.5rem 0;line-height:1.6\">" + t + "</p>");
     }
   }
   if (inList) result.push("</ul>");
@@ -335,9 +377,11 @@ export default function Block() {
     else if (typeof content === "object" && content !== null) str = String(content.html || content.HTML || content.value || content.text || content.plain || JSON.stringify(content)).trim();
     else str = String(content).trim();
     if (str === "") return null;
-    var html = /<[a-z][\s\S]*>/i.test(str) ? str : markdownToHtml(str);
+    var looksLikeNumberedList = /\d+\.\s+.*\d+\.\s+/.test(str) || /^\s*\d+\.\s+/m.test(str);
+    var isRawHtml = /<[a-z][\s\S]*>/i.test(str) && !looksLikeNumberedList;
+    var html = isRawHtml ? sanitizeRichTextHtml(str) : markdownToHtml(str);
     return React.createElement("div", {
-      className: "prose prose-lg max-w-none text-black",
+      className: "prose prose-lg max-w-none text-black [&_a]:!underline " + lmsRichTextHeadingProseSingleBlock(),
       style: { color: "#000", lineHeight: 1.6 },
       dangerouslySetInnerHTML: { __html: html }
     });
@@ -446,7 +490,7 @@ export default function Block() {
     React.createElement("div", { className: "w-full max-w-[1600px] mx-auto" },
       React.createElement(Button, { variant: "ghost", onClick: goBack, className: "mb-6 -ml-2" }, React.createElement(ArrowLeft, { className: "mr-2 h-4 w-4" }), " Back to Course"),
       React.createElement(Card, { className: "mb-8 border-0 shadow-none bg-transparent" },
-        React.createElement(CardHeader, { className: "px-0 pt-0" }, React.createElement(CardTitle, { className: "text-2xl font-bold", style: { color: "#E61C39" } }, sectionTitle)),
+        React.createElement(CardHeader, { className: "px-0 pt-0" }, React.createElement(CardTitle, { className: lmsSectionTitleClassSingleBlock() }, sectionTitle)),
         React.createElement(CardContent, { className: "space-y-6" }, contentEls)
       )
     )

@@ -92,7 +92,7 @@ function blocksToHtml(blocks) {
       text = b.elements.map(blockElementToHtml).join("");
     } else if (text != null) {
       var str = String(text);
-      text = (/\*\*[^*]*\*\*|\[[^\]]+\]\([^)]+\)/.test(str) ? markdownToHtml(str) : escapeHtml(str));
+      text = (/\*\*[^*]*\*\*|\[[^\]]+\]\([^)]+\)|^\s*#{1,6}\s+/m.test(str) ? markdownToHtml(str) : escapeHtml(str));
     } else {
       text = "";
     }
@@ -101,8 +101,12 @@ function blocksToHtml(blocks) {
       out.push("<li style=\"display:list-item;margin:0.25rem 0\">" + text + "</li>");
     } else {
       if (inList) { out.push("</" + listTag + ">"); inList = false; }
-      if (type === "heading_1") out.push("<p style=\"margin:0.5rem 0 0.25rem 0;font-weight:700;font-size:1.25em\">" + text + "</p>");
-      else if (type === "heading_2") out.push("<p style=\"margin:0.5rem 0 0.25rem 0;font-weight:600;font-size:1.1em\">" + text + "</p>");
+      if (type === "heading_1")
+        out.push("<h1 class=\"font-bold text-[#E61C39] text-xl md:text-2xl mt-3 mb-1.5 leading-tight\">" + text + "</h1>");
+      else if (type === "heading_2")
+        out.push("<h2 class=\"font-bold text-[#E61C39] text-lg md:text-xl mt-2.5 mb-1.5 leading-tight\">" + text + "</h2>");
+      else if (type === "heading_3")
+        out.push("<h3 class=\"font-semibold text-black text-base md:text-lg mt-2 mb-1 leading-snug\">" + text + "</h3>");
       else out.push("<p style=\"margin:0.35rem 0 0.5rem 0;line-height:1.6\">" + (text || "&nbsp;") + "</p>");
     }
   }
@@ -117,6 +121,37 @@ function linkToAnchor(url) {
   var text = url.replace(/&/g, "&amp;");
   return "<a href=\"" + safe + "\" target=\"_blank\" rel=\"noopener noreferrer\" style=\"text-decoration:underline\">" + text + "</a>";
 }
+
+var RICH_TEXT_HEADING_PROSE =
+  "[&_h1]:!mt-3 [&_h1]:!mb-1.5 [&_h1]:!font-bold [&_h1]:!text-[#E61C39] [&_h1]:!text-xl md:[&_h1]:!text-2xl [&_h1]:!leading-tight " +
+  "[&_h2]:!mt-2.5 [&_h2]:!mb-1.5 [&_h2]:!font-bold [&_h2]:!text-[#E61C39] [&_h2]:!text-lg md:[&_h2]:!text-xl [&_h2]:!leading-tight " +
+  "[&_h3]:!mt-2 [&_h3]:!mb-1 [&_h3]:!font-semibold [&_h3]:!text-black [&_h3]:!text-base md:[&_h3]:!text-lg [&_h3]:!leading-snug " +
+  "[&_h4]:!mt-2 [&_h4]:!mb-1 [&_h4]:!font-semibold [&_h4]:!text-foreground [&_h4]:!text-sm [&_h4]:!leading-snug " +
+  "[&_h5]:!mt-1.5 [&_h5]:!mb-0.5 [&_h5]:!font-semibold [&_h5]:!text-foreground [&_h5]:!text-xs " +
+  "[&_h6]:!mt-1.5 [&_h6]:!mb-0.5 [&_h6]:!font-semibold [&_h6]:!text-foreground [&_h6]:!text-xs";
+
+function sanitizeRichTextHtml(html) {
+  if (!html || typeof html !== "string") return "";
+  return html
+    .replace(/<script\b[^>]*>[\s\S]*?<\/script>/gi, "")
+    .replace(/\son\w+\s*=\s*(?:"[^"]*"|'[^']*'|[^\s>]+)/gi, "");
+}
+
+function markdownLineAsHeadingOrNull(trimmedLine) {
+  if (!trimmedLine) return null;
+  var m = trimmedLine.match(/^(#{1,6})\s+(.+)$/);
+  if (!m) return null;
+  var depth = Math.min(6, Math.max(1, m[1].length));
+  var inner = m[2];
+  var cls =
+    depth === 1 ? "font-bold text-[#E61C39] text-xl md:text-2xl mt-3 mb-1.5 leading-tight" :
+    depth === 2 ? "font-bold text-[#E61C39] text-lg md:text-xl mt-2.5 mb-1.5 leading-tight" :
+    depth === 3 ? "font-semibold text-black text-base md:text-lg mt-2 mb-1 leading-snug" :
+    depth === 4 ? "font-semibold text-foreground text-sm mt-2 mb-1 leading-snug" :
+    "font-semibold text-foreground text-xs mt-2 mb-0.5 leading-snug";
+  return "<h" + depth + " class=\"" + cls + "\">" + inner + "</h" + depth + ">";
+}
+
 function markdownToHtml(md) {
   if (!md || typeof md !== "string") return "";
   var out = md;
@@ -199,7 +234,9 @@ function markdownToHtml(md) {
       if (lastWasLi) { result.push("</li>"); lastWasLi = false; }
       while (listStack.length > 0) { result.push("</" + listStack.pop() + ">"); }
       var t = line.trim();
-      result.push(t === "" ? "<p style=\"margin:0.35rem 0;line-height:1.6\">&nbsp;</p>" : "<p style=\"margin:0.35rem 0 0.5rem 0;line-height:1.6\">" + t + "</p>");
+      var headingHtml = markdownLineAsHeadingOrNull(t);
+      if (headingHtml) result.push(headingHtml);
+      else result.push(t === "" ? "<p style=\"margin:0.35rem 0;line-height:1.6\">&nbsp;</p>" : "<p style=\"margin:0.35rem 0 0.5rem 0;line-height:1.6\">" + t + "</p>");
     }
   }
   if (lastWasLi) result.push("</li>");
@@ -332,14 +369,21 @@ function renderDescription(desc, fullWidth, options) {
   var resourceDocUrl = options && options.stripDocumentLinks ? (options.docUrl || null) : null;
   var stripAllLinks = options && options.stripAllLinks;
   if (!fromBlocks && options && options.stripDocumentLinks) s = stripDocumentLinksFromRaw(s, resourceDocUrl);
-  var looksLikeMarkdown = typeof s === "string" && (/\*\*[^*]*\*\*|\[[^\]]+\]\([^)]+\)/.test(s) || /^\s*[-*]\s+/m.test(s));
+  var looksLikeMarkdown =
+    typeof s === "string" &&
+    (/\*\*[^*]*\*\*|\[[^\]]+\]\([^)]+\)/.test(s) || /^\s*[-*]\s+/m.test(s) || /^\s*#{1,6}\s+/m.test(s));
   var isHtml = fromBlocks || (!looksLikeMarkdown && /<[a-z][\s\S]*>/i.test(s));
   var html = (looksLikeMarkdown && !fromBlocks) ? markdownToHtml(s) : (isHtml ? s : markdownToHtml(s));
+  html = sanitizeRichTextHtml(html);
   if (stripAllLinks) html = stripAllLinksFromHtml(html, options && options.docUrl ? options.docUrl : null);
   else if (options && options.stripDocumentLinks) html = stripDocumentLinksFromHtml(html, resourceDocUrl);
   return (
     <div
-      className={cn("leading-relaxed text-black/90 prose prose-sm max-w-none [&_ul]:list-disc [&_ul]:!pl-12 [&_ol]:!pl-12 [&_ul]:!list-outside [&_ol]:!list-outside [&_li]:list-item [&_a]:!underline", fullWidth ? "" : "")}
+      className={cn(
+        "leading-relaxed text-black/90 prose prose-sm max-w-none [&_ul]:list-disc [&_ul]:!pl-12 [&_ol]:!pl-12 [&_ul]:!list-outside [&_ol]:!list-outside [&_li]:list-item [&_a]:!underline",
+        RICH_TEXT_HEADING_PROSE,
+        fullWidth ? "" : ""
+      )}
       style={{ lineHeight: 1.6 }}
       dangerouslySetInnerHTML={{ __html: html }}
     />

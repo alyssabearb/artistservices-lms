@@ -25,6 +25,67 @@ var TRAINING_SESSION_PATH = "/training-session";
 /** Course reader with TOC (`recordId` = course id). */
 var COURSE_READER_PATH = "/section-detail";
 
+/** Section title (largest red) > Airtable large heading h1; h2 red; h3 black. */
+function lmsSectionTitleClass(embedInCourseDetail) {
+  return embedInCourseDetail
+    ? "text-4xl md:text-5xl font-bold tracking-tight text-[#E61C39] text-center"
+    : "text-5xl md:text-6xl font-bold tracking-tight text-[#E61C39] text-center";
+}
+
+function lmsRichTextHeadingProse(embedInCourseDetail) {
+  if (embedInCourseDetail) {
+    return (
+      "[&_h1]:!mt-4 [&_h1]:!mb-2 [&_h1]:!font-bold [&_h1]:!tracking-tight [&_h1]:!text-[#E61C39] [&_h1]:!text-3xl md:[&_h1]:!text-4xl " +
+      "[&_h2]:!mt-3 [&_h2]:!mb-2 [&_h2]:!font-bold [&_h2]:!text-[#E61C39] [&_h2]:!text-xl md:[&_h2]:!text-2xl [&_h2]:!leading-tight " +
+      "[&_h3]:!mt-3 [&_h3]:!mb-1.5 [&_h3]:!font-semibold [&_h3]:!text-black [&_h3]:!text-lg md:[&_h3]:!text-xl [&_h3]:!leading-snug " +
+      "[&_h4]:!mt-2 [&_h4]:!mb-1 [&_h4]:!font-semibold [&_h4]:!text-[#E61C39] [&_h4]:!text-sm " +
+      "[&_h5]:!mt-2 [&_h5]:!mb-1 [&_h5]:!font-semibold [&_h5]:!text-[#E61C39] [&_h5]:!text-xs " +
+      "[&_h6]:!mt-2 [&_h6]:!mb-1 [&_h6]:!font-semibold [&_h6]:!text-[#E61C39] [&_h6]:!text-xs"
+    );
+  }
+  return (
+    "[&_h1]:!mt-4 [&_h1]:!mb-2 [&_h1]:!font-bold [&_h1]:!tracking-tight [&_h1]:!text-[#E61C39] [&_h1]:!text-4xl md:[&_h1]:!text-5xl " +
+    "[&_h2]:!mt-3 [&_h2]:!mb-2 [&_h2]:!font-bold [&_h2]:!text-[#E61C39] [&_h2]:!text-2xl md:[&_h2]:!text-3xl [&_h2]:!leading-tight " +
+    "[&_h3]:!mt-3 [&_h3]:!mb-1.5 [&_h3]:!font-semibold [&_h3]:!text-black [&_h3]:!text-xl md:[&_h3]:!text-2xl [&_h3]:!leading-snug " +
+    "[&_h4]:!mt-2 [&_h4]:!mb-1 [&_h4]:!font-semibold [&_h4]:!text-[#E61C39] [&_h4]:!text-sm " +
+    "[&_h5]:!mt-2 [&_h5]:!mb-1 [&_h5]:!font-semibold [&_h5]:!text-[#E61C39] [&_h5]:!text-xs " +
+    "[&_h6]:!mt-2 [&_h6]:!mb-1 [&_h6]:!font-semibold [&_h6]:!text-[#E61C39] [&_h6]:!text-xs"
+  );
+}
+
+/** Classes for markdown # / ## / ### lines (must match lmsRichTextHeadingProse ladder). */
+function lmsAtxHeadingClass(embedInCourseDetail, depth) {
+  var d = Math.min(6, Math.max(1, depth));
+  if (embedInCourseDetail) {
+    if (d === 1) return "font-bold tracking-tight text-[#E61C39] text-3xl md:text-4xl mt-4 mb-2 leading-tight";
+    if (d === 2) return "font-bold text-[#E61C39] text-xl md:text-2xl mt-3 mb-2 leading-tight";
+    if (d === 3) return "font-semibold text-black text-lg md:text-xl mt-3 mb-1.5 leading-snug";
+    return "font-semibold text-[#E61C39] text-sm mt-2 mb-1 leading-snug";
+  }
+  if (d === 1) return "font-bold tracking-tight text-[#E61C39] text-4xl md:text-5xl mt-4 mb-2 leading-tight";
+  if (d === 2) return "font-bold text-[#E61C39] text-2xl md:text-3xl mt-3 mb-2 leading-tight";
+  if (d === 3) return "font-semibold text-black text-xl md:text-2xl mt-3 mb-1.5 leading-snug";
+  return "font-semibold text-[#E61C39] text-sm mt-2 mb-1 leading-snug";
+}
+
+function sanitizeRichTextHtml(html) {
+  if (!html || typeof html !== "string") return "";
+  return html
+    .replace(/<script\b[^>]*>[\s\S]*?<\/script>/gi, "")
+    .replace(/\son\w+\s*=\s*(?:"[^"]*"|'[^']*'|[^\s>]+)/gi, "");
+}
+
+/** Markdown-style ATX heading on a line (after bold/link transforms). Returns full <hN>… or null. */
+function markdownLineAsHeadingOrNull(trimmedLine, embedInCourseDetail) {
+  if (!trimmedLine) return null;
+  var m = trimmedLine.match(/^(#{1,6})\s+(.+)$/);
+  if (!m) return null;
+  var depth = Math.min(6, Math.max(1, m[1].length));
+  var inner = m[2];
+  var cls = lmsAtxHeadingClass(Boolean(embedInCourseDetail), depth);
+  return "<h" + depth + " class=\"" + cls + "\">" + inner + "</h" + depth + ">";
+}
+
 function recordSectionView(personId, courseId, sectionIds, viewedSectionId) {
   if (typeof window === "undefined" || !personId || !courseId || !viewedSectionId) return;
   var ids = sectionIds && sectionIds.length > 0 ? sectionIds.slice() : [viewedSectionId];
@@ -71,8 +132,9 @@ function recordCourseComplete(personId, courseId) {
   } catch (e) {}
 }
 
-function markdownToHtml(md) {
+function markdownToHtml(md, embedInCourseDetail) {
   if (!md || typeof md !== "string") return "";
+  var embed = Boolean(embedInCourseDetail);
   var out = md;
   out = out.replace(/\\_/g, "_").replace(/\\\*/g, "*");
   var linkUrls = [];
@@ -111,29 +173,84 @@ function markdownToHtml(md) {
   }
   lines = expanded;
   var result = [];
-  var inList = false;
-  var listTag = "ul";
+  var listStack = [];
+  function listOpenTag(tag) {
+    return tag === "ol"
+      ? "<ol style=\"list-style-type:decimal;padding-left:2.5rem;margin:0.35rem 0 0.5rem 0;list-style-position:outside\">"
+      : "<ul style=\"list-style-type:disc;padding-left:2.5rem;margin:0.35rem 0 0.5rem 0;list-style-position:outside\">";
+  }
+  function closeListAtDepth(depth) {
+    if (depth < 0 || depth >= listStack.length) return;
+    if (listStack[depth].liOpen) {
+      result.push("</li>");
+      listStack[depth].liOpen = false;
+    }
+    result.push("</" + listStack[depth].tag + ">");
+    listStack.pop();
+  }
+  function closeAllLists() {
+    while (listStack.length > 0) closeListAtDepth(listStack.length - 1);
+  }
   for (var i = 0; i < lines.length; i++) {
     var line = lines[i];
     var bulletMatch = line.match(/^(\s*)[-*]\s+(.*)$/);
     var numberedMatch = line.match(/^(\s*)\d+\.\s+(.*)$/);
-    if (bulletMatch) {
-      var content = bulletMatch[2].trim();
-      if (inList && listTag !== "ul") { result.push("</" + listTag + ">"); inList = false; }
-      if (!inList) { result.push("<ul style=\"list-style-type:disc;padding-left:2.5rem;margin:0.35rem 0 0.5rem 0;list-style-position:outside\">"); listTag = "ul"; inList = true; }
-      result.push("<li class=\"leading-relaxed\">" + content + "</li>");
-    } else if (numberedMatch) {
-      var numContent = numberedMatch[2].trim();
-      if (inList && listTag !== "ol") { result.push("</" + listTag + ">"); inList = false; }
-      if (!inList) { result.push("<ol style=\"list-style-type:decimal;padding-left:2.5rem;margin:0.35rem 0 0.5rem 0;list-style-position:outside\">"); listTag = "ol"; inList = true; }
-      result.push("<li class=\"leading-relaxed\">" + numContent + "</li>");
+    if (bulletMatch || numberedMatch) {
+      var match = bulletMatch || numberedMatch;
+      var tag = bulletMatch ? "ul" : "ol";
+      var indentRaw = (match[1] || "").replace(/\t/g, "    ");
+      var level = Math.floor(indentRaw.length / 2);
+      if (level < 0) level = 0;
+
+      if (listStack.length === 0) {
+        result.push(listOpenTag(tag));
+        listStack.push({ tag: tag, liOpen: false });
+      }
+
+      while (listStack.length - 1 > level) closeListAtDepth(listStack.length - 1);
+
+      while (listStack.length - 1 < level) {
+        var parent = listStack[listStack.length - 1];
+        if (!parent.liOpen) {
+          result.push("<li class=\"leading-relaxed\" style=\"list-style-type:none;margin:0;padding:0\">");
+          parent.liOpen = true;
+        }
+        var nestedTag = listStack.length - 1 + 1 === level ? tag : parent.tag;
+        result.push(listOpenTag(nestedTag));
+        listStack.push({ tag: nestedTag, liOpen: false });
+      }
+
+      var active = listStack[listStack.length - 1];
+      if (active.tag !== tag) {
+        closeListAtDepth(listStack.length - 1);
+        if (listStack.length > 0) {
+          var p = listStack[listStack.length - 1];
+          if (!p.liOpen) {
+            result.push("<li class=\"leading-relaxed\" style=\"list-style-type:none;margin:0;padding:0\">");
+            p.liOpen = true;
+          }
+        }
+        result.push(listOpenTag(tag));
+        listStack.push({ tag: tag, liOpen: false });
+        active = listStack[listStack.length - 1];
+      }
+
+      if (active.liOpen) {
+        result.push("</li>");
+        active.liOpen = false;
+      }
+      var itemContent = String(match[2] || "").trim();
+      result.push("<li class=\"leading-relaxed\">" + itemContent);
+      active.liOpen = true;
     } else {
-      if (inList) { result.push("</" + listTag + ">"); inList = false; }
+      closeAllLists();
       var t = line.trim();
-      result.push(t === "" ? "<p style=\"margin:0.15rem 0\">&nbsp;</p>" : "<p style=\"margin:0.35rem 0 0.5rem 0;line-height:1.6\">" + t + "</p>");
+      var headingHtml = markdownLineAsHeadingOrNull(t, embed);
+      if (headingHtml) result.push(headingHtml);
+      else result.push(t === "" ? "<p style=\"margin:0.15rem 0\">&nbsp;</p>" : "<p style=\"margin:0.35rem 0 0.5rem 0;line-height:1.6\">" + t + "</p>");
     }
   }
-  if (inList) result.push("</" + listTag + ">");
+  closeAllLists();
   return result.join("\n");
 }
 
@@ -519,10 +636,12 @@ export default function Block(props) {
     else str = String(content).trim();
     if (str === "") return null;
     var looksLikeNumberedList = /\d+\.\s+.*\d+\.\s+/.test(str) || /^\s*\d+\.\s+/m.test(str);
-    var html = (/<[a-z][\s\S]*>/i.test(str) && !looksLikeNumberedList) ? str : markdownToHtml(str);
+    var isRawHtml = /<[a-z][\s\S]*>/i.test(str) && !looksLikeNumberedList;
+    var html = isRawHtml ? sanitizeRichTextHtml(str) : markdownToHtml(str, embedInCourseDetail);
+    var headingProse = lmsRichTextHeadingProse(embedInCourseDetail);
     var proseClass = embedInCourseDetail
-      ? "prose prose-sm max-w-none text-black [&_a]:!underline [&_ul]:!pl-8 [&_ol]:!pl-8 [&_ul]:!list-outside [&_ol]:!list-outside"
-      : "prose prose-base max-w-none text-black [&_a]:!underline [&_ul]:!pl-10 [&_ol]:!pl-10 [&_ul]:!list-outside [&_ol]:!list-outside";
+      ? "prose prose-sm max-w-none text-black [&_a]:!underline [&_ul]:!pl-8 [&_ol]:!pl-8 [&_ul]:!list-outside [&_ol]:!list-outside " + headingProse
+      : "prose prose-base max-w-none text-black [&_a]:!underline [&_ul]:!pl-10 [&_ol]:!pl-10 [&_ul]:!list-outside [&_ol]:!list-outside " + headingProse;
     return React.createElement("div", { className: proseClass, style: { color: "#000", lineHeight: 1.55 }, dangerouslySetInnerHTML: { __html: html } });
   }
 
@@ -595,7 +714,7 @@ export default function Block(props) {
     }
     contentEls.push(
       React.createElement("div", { key: "check", className: "section-checklist-print-area" },
-        React.createElement("div", { className: "print-only mb-4", "aria-hidden": "true" }, React.createElement("h1", { className: "text-2xl font-bold", style: { color: "#E61C39" } }, sectionTitle)),
+        React.createElement("div", { className: "print-only mb-4", "aria-hidden": "true" }, React.createElement("h1", { className: "text-2xl font-bold text-center", style: { color: "#E61C39" } }, sectionTitle)),
         React.createElement("div", { className: "space-y-1" }, renderChecklistNodes(checklistTree, "")),
         React.createElement("div", { className: "pt-4 no-print" }, React.createElement(Button, { onClick: function () { openChecklistPrintWindow(sectionTitle, checklistTree, checklistState); }, variant: "outline", className: "w-full", size: "lg" }, React.createElement(Download, { className: "mr-2 h-4 w-4" }), " Download PDF"))
       )
@@ -686,7 +805,7 @@ export default function Block(props) {
   }
 
   var outerPad = embedInCourseDetail ? "w-full max-w-full px-0 py-3 md:py-4" : "w-full max-w-full px-4 md:px-6 lg:px-8 py-6 md:py-8";
-  var titleClass = embedInCourseDetail ? "text-lg font-bold" : "text-2xl font-bold";
+  var titleClass = lmsSectionTitleClass(embedInCourseDetail);
   return React.createElement("div", { className: outerPad },
     React.createElement("style", { dangerouslySetInnerHTML: { __html: ".print-only { display: none; } @media print { .no-print { display: none !important; } .print-only { display: block !important; } body * { visibility: hidden; } .section-checklist-print-area, .section-checklist-print-area * { visibility: visible; } .section-checklist-print-area { position: absolute; left: 0; top: 0; width: 100%; margin: 0; padding: 1rem 1.5rem; } }" } }),
     React.createElement("div", { className: embedInCourseDetail ? "w-full max-w-none mx-auto" : "w-full max-w-[1600px] mx-auto" },
@@ -694,7 +813,7 @@ export default function Block(props) {
         ? React.createElement(Button, { variant: "ghost", onClick: goBack, className: "mb-4 -ml-2 no-print" }, React.createElement(ArrowLeft, { className: "mr-2 h-4 w-4" }), " Back to All Pages")
         : null,
       React.createElement(Card, { className: "mb-2 border-0 shadow-none bg-transparent" },
-        React.createElement(CardHeader, { className: "px-0 pt-0 no-print pb-2" }, React.createElement(CardTitle, { className: titleClass, style: { color: "#E61C39" } }, sectionTitle)),
+        React.createElement(CardHeader, { className: "px-0 pt-0 no-print pb-2" }, React.createElement(CardTitle, { className: titleClass }, sectionTitle)),
         React.createElement(CardContent, { className: "px-0 space-y-4" }, contentEls)
       )
     ),
