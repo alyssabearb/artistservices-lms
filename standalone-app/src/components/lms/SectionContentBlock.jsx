@@ -25,7 +25,7 @@ var TRAINING_SESSION_PATH = "/training-session";
 /** Course reader with TOC (`recordId` = course id). */
 var COURSE_READER_PATH = "/section-detail";
 
-/** Section title (largest red) > Airtable large heading h1; h2 red; h3 black. */
+/** Section card title (largest red) unchanged. Body rich text: # = former ## scale/red, ## = former ### size + red, ### black unchanged. */
 function lmsSectionTitleClass(embedInCourseDetail) {
   return embedInCourseDetail
     ? "text-4xl md:text-5xl font-bold tracking-tight text-[#E61C39] text-center"
@@ -35,18 +35,18 @@ function lmsSectionTitleClass(embedInCourseDetail) {
 function lmsRichTextHeadingProse(embedInCourseDetail) {
   if (embedInCourseDetail) {
     return (
-      "[&_h1]:!mt-4 [&_h1]:!mb-2 [&_h1]:!font-bold [&_h1]:!tracking-tight [&_h1]:!text-[#E61C39] [&_h1]:!text-3xl md:[&_h1]:!text-4xl " +
-      "[&_h2]:!mt-3 [&_h2]:!mb-2 [&_h2]:!font-bold [&_h2]:!text-[#E61C39] [&_h2]:!text-xl md:[&_h2]:!text-2xl [&_h2]:!leading-tight " +
-      "[&_h3]:!mt-3 [&_h3]:!mb-1.5 [&_h3]:!font-semibold [&_h3]:!text-black [&_h3]:!text-lg md:[&_h3]:!text-xl [&_h3]:!leading-snug " +
+      "[&_h1]:!mt-3 [&_h1]:!mb-2 [&_h1]:!font-bold [&_h1]:!text-[#E61C39] [&_h1]:!text-xl md:[&_h1]:!text-2xl [&_h1]:!leading-tight " +
+      "[&_h2]:!mt-3 [&_h2]:!mb-1.5 [&_h2]:!font-bold [&_h2]:!text-[#E61C39] [&_h2]:!text-lg md:[&_h2]:!text-xl [&_h2]:!leading-snug " +
+      "[&_h3]:!mt-3 [&_h3]:!mb-1.5 [&_h3]:!font-bold [&_h3]:!text-black [&_h3]:!text-lg md:[&_h3]:!text-xl [&_h3]:!leading-snug " +
       "[&_h4]:!mt-2 [&_h4]:!mb-1 [&_h4]:!font-semibold [&_h4]:!text-[#E61C39] [&_h4]:!text-sm " +
       "[&_h5]:!mt-2 [&_h5]:!mb-1 [&_h5]:!font-semibold [&_h5]:!text-[#E61C39] [&_h5]:!text-xs " +
       "[&_h6]:!mt-2 [&_h6]:!mb-1 [&_h6]:!font-semibold [&_h6]:!text-[#E61C39] [&_h6]:!text-xs"
     );
   }
   return (
-    "[&_h1]:!mt-4 [&_h1]:!mb-2 [&_h1]:!font-bold [&_h1]:!tracking-tight [&_h1]:!text-[#E61C39] [&_h1]:!text-4xl md:[&_h1]:!text-5xl " +
-    "[&_h2]:!mt-3 [&_h2]:!mb-2 [&_h2]:!font-bold [&_h2]:!text-[#E61C39] [&_h2]:!text-2xl md:[&_h2]:!text-3xl [&_h2]:!leading-tight " +
-    "[&_h3]:!mt-3 [&_h3]:!mb-1.5 [&_h3]:!font-semibold [&_h3]:!text-black [&_h3]:!text-xl md:[&_h3]:!text-2xl [&_h3]:!leading-snug " +
+    "[&_h1]:!mt-3 [&_h1]:!mb-2 [&_h1]:!font-bold [&_h1]:!text-[#E61C39] [&_h1]:!text-2xl md:[&_h1]:!text-3xl [&_h1]:!leading-tight " +
+    "[&_h2]:!mt-3 [&_h2]:!mb-1.5 [&_h2]:!font-bold [&_h2]:!text-[#E61C39] [&_h2]:!text-xl md:[&_h2]:!text-2xl [&_h2]:!leading-snug " +
+    "[&_h3]:!mt-3 [&_h3]:!mb-1.5 [&_h3]:!font-bold [&_h3]:!text-black [&_h3]:!text-xl md:[&_h3]:!text-2xl [&_h3]:!leading-snug " +
     "[&_h4]:!mt-2 [&_h4]:!mb-1 [&_h4]:!font-semibold [&_h4]:!text-[#E61C39] [&_h4]:!text-sm " +
     "[&_h5]:!mt-2 [&_h5]:!mb-1 [&_h5]:!font-semibold [&_h5]:!text-[#E61C39] [&_h5]:!text-xs " +
     "[&_h6]:!mt-2 [&_h6]:!mb-1 [&_h6]:!font-semibold [&_h6]:!text-[#E61C39] [&_h6]:!text-xs"
@@ -57,14 +57,14 @@ function lmsRichTextHeadingProse(embedInCourseDetail) {
 function lmsAtxHeadingClass(embedInCourseDetail, depth) {
   var d = Math.min(6, Math.max(1, depth));
   if (embedInCourseDetail) {
-    if (d === 1) return "font-bold tracking-tight text-[#E61C39] text-3xl md:text-4xl mt-4 mb-2 leading-tight";
-    if (d === 2) return "font-bold text-[#E61C39] text-xl md:text-2xl mt-3 mb-2 leading-tight";
-    if (d === 3) return "font-semibold text-black text-lg md:text-xl mt-3 mb-1.5 leading-snug";
+    if (d === 1) return "font-bold text-[#E61C39] text-xl md:text-2xl mt-3 mb-2 leading-tight";
+    if (d === 2) return "font-bold text-[#E61C39] text-lg md:text-xl mt-3 mb-1.5 leading-snug";
+    if (d === 3) return "font-bold text-black text-lg md:text-xl mt-3 mb-1.5 leading-snug";
     return "font-semibold text-[#E61C39] text-sm mt-2 mb-1 leading-snug";
   }
-  if (d === 1) return "font-bold tracking-tight text-[#E61C39] text-4xl md:text-5xl mt-4 mb-2 leading-tight";
-  if (d === 2) return "font-bold text-[#E61C39] text-2xl md:text-3xl mt-3 mb-2 leading-tight";
-  if (d === 3) return "font-semibold text-black text-xl md:text-2xl mt-3 mb-1.5 leading-snug";
+  if (d === 1) return "font-bold text-[#E61C39] text-2xl md:text-3xl mt-3 mb-2 leading-tight";
+  if (d === 2) return "font-bold text-[#E61C39] text-xl md:text-2xl mt-3 mb-1.5 leading-snug";
+  if (d === 3) return "font-bold text-black text-xl md:text-2xl mt-3 mb-1.5 leading-snug";
   return "font-semibold text-[#E61C39] text-sm mt-2 mb-1 leading-snug";
 }
 
@@ -84,6 +84,67 @@ function markdownLineAsHeadingOrNull(trimmedLine, embedInCourseDetail) {
   var inner = m[2];
   var cls = lmsAtxHeadingClass(Boolean(embedInCourseDetail), depth);
   return "<h" + depth + " class=\"" + cls + "\">" + inner + "</h" + depth + ">";
+}
+
+/** Gallery index lives here so prev/next does not re-run the whole section (keeps layout + neighbors stable). */
+function SectionTextGallery(props) {
+  var images = Array.isArray(props.images) ? props.images : [];
+  var resetKey = props.resetKey != null ? String(props.resetKey) : "";
+  const [index, setIndex] = useState(0);
+  useEffect(function () {
+    setIndex(0);
+  }, [resetKey]);
+  if (images.length === 0) return null;
+  var galIdx = Math.min(Math.max(0, index), images.length - 1);
+  return React.createElement(
+    "div",
+    { className: "w-full" },
+    React.createElement(
+      "div",
+      { className: "relative flex min-h-[min(40vh,480px)] items-center justify-center gap-2 w-full rounded-lg overflow-hidden bg-muted/30 border border-border" },
+      React.createElement(
+        Button,
+        {
+          type: "button",
+          variant: "outline",
+          size: "icon",
+          "aria-label": "Previous image",
+          onClick: function () {
+            setIndex(function (i) {
+              return Math.max(0, i - 1);
+            });
+          },
+          disabled: galIdx <= 0,
+          className: "absolute left-2 top-1/2 -translate-y-1/2 z-10 shrink-0",
+        },
+        React.createElement(ChevronLeft, { className: "h-6 w-6" })
+      ),
+      React.createElement("img", {
+        src: images[galIdx].url,
+        alt: images[galIdx].name,
+        className: "max-w-full max-h-[70vh] w-auto h-auto object-contain",
+        decoding: "async",
+      }),
+      React.createElement(
+        Button,
+        {
+          type: "button",
+          variant: "outline",
+          size: "icon",
+          "aria-label": "Next image",
+          onClick: function () {
+            setIndex(function (i) {
+              return Math.min(images.length - 1, i + 1);
+            });
+          },
+          disabled: galIdx >= images.length - 1,
+          className: "absolute right-2 top-1/2 -translate-y-1/2 z-10 shrink-0",
+        },
+        React.createElement(ChevronRight, { className: "h-6 w-6" })
+      )
+    ),
+    React.createElement("p", { className: "text-center text-sm text-muted-foreground mt-2" }, galIdx + 1 + " / " + images.length)
+  );
 }
 
 function recordSectionView(personId, courseId, sectionIds, viewedSectionId) {
@@ -174,10 +235,12 @@ function markdownToHtml(md, embedInCourseDetail) {
   lines = expanded;
   var result = [];
   var listStack = [];
-  function listOpenTag(tag) {
+  function listOpenTag(tag, nested) {
+    var pad = nested ? "1.125rem" : "1.75rem";
+    var margin = nested ? "0.15rem 0 0 0" : "0.3rem 0 0.4rem 0";
     return tag === "ol"
-      ? "<ol style=\"list-style-type:decimal;padding-left:2.5rem;margin:0.35rem 0 0.5rem 0;list-style-position:outside\">"
-      : "<ul style=\"list-style-type:disc;padding-left:2.5rem;margin:0.35rem 0 0.5rem 0;list-style-position:outside\">";
+      ? "<ol style=\"list-style-type:decimal;padding-left:" + pad + ";margin:" + margin + ";list-style-position:outside\">"
+      : "<ul style=\"list-style-type:disc;padding-left:" + pad + ";margin:" + margin + ";list-style-position:outside\">";
   }
   function closeListAtDepth(depth) {
     if (depth < 0 || depth >= listStack.length) return;
@@ -203,7 +266,7 @@ function markdownToHtml(md, embedInCourseDetail) {
       if (level < 0) level = 0;
 
       if (listStack.length === 0) {
-        result.push(listOpenTag(tag));
+        result.push(listOpenTag(tag, false));
         listStack.push({ tag: tag, liOpen: false });
       }
 
@@ -216,7 +279,7 @@ function markdownToHtml(md, embedInCourseDetail) {
           parent.liOpen = true;
         }
         var nestedTag = listStack.length - 1 + 1 === level ? tag : parent.tag;
-        result.push(listOpenTag(nestedTag));
+        result.push(listOpenTag(nestedTag, true));
         listStack.push({ tag: nestedTag, liOpen: false });
       }
 
@@ -230,7 +293,7 @@ function markdownToHtml(md, embedInCourseDetail) {
             p.liOpen = true;
           }
         }
-        result.push(listOpenTag(tag));
+        result.push(listOpenTag(tag, listStack.length > 0));
         listStack.push({ tag: tag, liOpen: false });
         active = listStack[listStack.length - 1];
       }
@@ -389,11 +452,9 @@ export default function Block(props) {
   const [sectionStatus, setSectionStatus] = useState("pending");
 
   const [checklistState, setChecklistState] = useState({});
-  const [galleryIndex, setGalleryIndex] = useState(0);
   const [compQuizPassed, setCompQuizPassed] = useState(false);
   const [lightbox, setLightbox] = useState(null);
 
-  useEffect(function () { setGalleryIndex(0); }, [sectionId]);
   useEffect(function () { setCompQuizPassed(false); }, [sectionId]);
   useEffect(function () { setLightbox(null); }, [sectionId]);
   useEffect(function () {
@@ -640,8 +701,8 @@ export default function Block(props) {
     var html = isRawHtml ? sanitizeRichTextHtml(str) : markdownToHtml(str, embedInCourseDetail);
     var headingProse = lmsRichTextHeadingProse(embedInCourseDetail);
     var proseClass = embedInCourseDetail
-      ? "prose prose-sm max-w-none text-black [&_a]:!underline [&_ul]:!pl-8 [&_ol]:!pl-8 [&_ul]:!list-outside [&_ol]:!list-outside " + headingProse
-      : "prose prose-base max-w-none text-black [&_a]:!underline [&_ul]:!pl-10 [&_ol]:!pl-10 [&_ul]:!list-outside [&_ol]:!list-outside " + headingProse;
+      ? "prose prose-sm max-w-none text-black [&_a]:!underline [&_strong]:!font-bold [&_ul]:!pl-7 [&_ul_ul]:!pl-4 [&_ol]:!pl-7 [&_ol_ol]:!pl-4 [&_ul]:!list-outside [&_ol]:!list-outside " + headingProse
+      : "prose prose-base max-w-none text-black [&_a]:!underline [&_strong]:!font-bold [&_ul]:!pl-8 [&_ul_ul]:!pl-5 [&_ol]:!pl-8 [&_ol_ol]:!pl-5 [&_ul]:!list-outside [&_ol]:!list-outside " + headingProse;
     return React.createElement("div", { className: proseClass, style: { color: "#000", lineHeight: 1.55 }, dangerouslySetInnerHTML: { __html: html } });
   }
 
@@ -770,19 +831,7 @@ export default function Block(props) {
   }
 
   if (sectionType === "Text + Gallery" && galleryImages.length > 0) {
-    var galIdx = Math.min(Math.max(0, galleryIndex), galleryImages.length - 1);
-    var galPrev = function () { setGalleryIndex(function (i) { return Math.max(0, i - 1); }); };
-    var galNext = function () { setGalleryIndex(function (i) { return Math.min(galleryImages.length - 1, i + 1); }); };
-    contentEls.push(
-      React.createElement("div", { key: "gallery", className: "w-full" },
-        React.createElement("div", { className: "relative flex items-center justify-center gap-2 w-full rounded-lg overflow-hidden bg-muted/30 border border-border" },
-          React.createElement(Button, { type: "button", variant: "outline", size: "icon", "aria-label": "Previous image", onClick: galPrev, disabled: galIdx <= 0, className: "absolute left-2 top-1/2 -translate-y-1/2 z-10 shrink-0" }, React.createElement(ChevronLeft, { className: "h-6 w-6" })),
-          React.createElement("img", { src: galleryImages[galIdx].url, alt: galleryImages[galIdx].name, className: "max-w-full max-h-[70vh] w-auto h-auto object-contain" }),
-          React.createElement(Button, { type: "button", variant: "outline", size: "icon", "aria-label": "Next image", onClick: galNext, disabled: galIdx >= galleryImages.length - 1, className: "absolute right-2 top-1/2 -translate-y-1/2 z-10 shrink-0" }, React.createElement(ChevronRight, { className: "h-6 w-6" }))
-        ),
-        React.createElement("p", { className: "text-center text-sm text-muted-foreground mt-2" }, (galIdx + 1) + " / " + galleryImages.length)
-      )
-    );
+    contentEls.push(React.createElement(SectionTextGallery, { key: "gallery", images: galleryImages, resetKey: sectionId || "" }));
   }
 
   var isLastSection = sectionIds.length > 0 && currentIndex === sectionIds.length - 1;
@@ -808,7 +857,7 @@ export default function Block(props) {
   var titleClass = lmsSectionTitleClass(embedInCourseDetail);
   return React.createElement("div", { className: outerPad },
     React.createElement("style", { dangerouslySetInnerHTML: { __html: ".print-only { display: none; } @media print { .no-print { display: none !important; } .print-only { display: block !important; } body * { visibility: hidden; } .section-checklist-print-area, .section-checklist-print-area * { visibility: visible; } .section-checklist-print-area { position: absolute; left: 0; top: 0; width: 100%; margin: 0; padding: 1rem 1.5rem; } }" } }),
-    React.createElement("div", { className: embedInCourseDetail ? "w-full max-w-none mx-auto" : "w-full max-w-[1600px] mx-auto" },
+    React.createElement("div", { className: embedInCourseDetail ? "w-full max-w-none mx-auto" : "w-full max-w-full mx-auto" },
       !embedInCourseDetail
         ? React.createElement(Button, { variant: "ghost", onClick: goBack, className: "mb-4 -ml-2 no-print" }, React.createElement(ArrowLeft, { className: "mr-2 h-4 w-4" }), " Back to All Pages")
         : null,

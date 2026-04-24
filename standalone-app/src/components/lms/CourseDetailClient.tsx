@@ -791,7 +791,7 @@ export default function Block() {
 
         {showReader && courseIdFromUrl && activeReaderSectionId && (
           <div ref={readerAnchorRef} id="course-session-reader" className="mt-5 pt-5 border-t border-border w-full">
-            <div className="mx-auto max-w-2xl px-3 md:px-4">
+            <div className="mx-auto w-full min-w-0 max-w-full px-3 md:px-4 md:w-[75%] md:max-w-none">
               <SectionContentBlock
                 recordId={activeReaderSectionId}
                 courseId={courseIdFromUrl}

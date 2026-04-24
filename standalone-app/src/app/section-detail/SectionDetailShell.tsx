@@ -51,14 +51,18 @@ export default function SectionDetailShell() {
 
   return (
     <>
-      <SectionContentBlock
-        recordId={recordId}
-        courseId={courseId}
-        trackId={trackId}
-        sectionIds={sectionIds}
-        personId={personId}
-        linkedLearningTrackIds={linkedLearningTrackIds}
-      />
+      <div className="w-full max-w-[1600px] mx-auto">
+        <div className="mx-auto w-full min-w-0 max-w-full md:w-[75%] md:max-w-none">
+          <SectionContentBlock
+            recordId={recordId}
+            courseId={courseId}
+            trackId={trackId}
+            sectionIds={sectionIds}
+            personId={personId}
+            linkedLearningTrackIds={linkedLearningTrackIds}
+          />
+        </div>
+      </div>
       <ResourceLibrarySection
         recordId={recordId}
         courseId={courseId}

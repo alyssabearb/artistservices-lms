@@ -18,6 +18,13 @@ import {
 var TRAINING_SESSION_PATH = "/training-session";
 var COURSE_READER_PATH = "/section-detail";
 
+/** Non-text resource card titles: same scale as section body ### (h3) in SectionContentBlock.jsx */
+function resourceCardNonTextTitleClass(embedInCourseDetail) {
+  return embedInCourseDetail
+    ? "text-lg md:text-xl !font-bold text-black leading-snug"
+    : "text-xl md:text-2xl !font-bold text-black leading-snug";
+}
+
 function sectionFieldsAreSurveyLike(fields: Record<string, unknown> | undefined): boolean {
   if (!fields || typeof fields !== "object") return false;
   var raw: unknown =
@@ -88,8 +95,8 @@ function blocksToHtml(blocks, headingProfile) {
         out.push(
           "<h1 class=\"" +
             (tr
-              ? "font-bold text-[#E61C39] text-2xl md:text-3xl mt-3 mb-2 leading-tight"
-              : "font-bold text-[#E61C39] text-xl md:text-2xl mt-3 mb-1.5 leading-tight") +
+              ? "font-bold text-[#E61C39] text-xl md:text-2xl mt-3 mb-2 leading-tight"
+              : "font-bold text-[#E61C39] text-lg md:text-xl mt-2.5 mb-1.5 leading-tight") +
             "\">" +
             text +
             "</h1>"
@@ -97,7 +104,9 @@ function blocksToHtml(blocks, headingProfile) {
       else if (type === "heading_2")
         out.push(
           "<h2 class=\"" +
-            (tr ? "font-bold text-[#E61C39] text-xl md:text-2xl mt-3 mb-2 leading-tight" : "font-bold text-[#E61C39] text-lg md:text-xl mt-2.5 mb-1.5 leading-tight") +
+            (tr
+              ? "font-bold text-[#E61C39] text-lg md:text-xl mt-3 mb-1.5 leading-snug"
+              : "font-bold text-[#E61C39] text-base md:text-lg mt-2 mb-1 leading-snug") +
             "\">" +
             text +
             "</h2>"
@@ -106,8 +115,8 @@ function blocksToHtml(blocks, headingProfile) {
         out.push(
           "<h3 class=\"" +
             (tr
-              ? "font-semibold text-black text-lg md:text-xl mt-2 mb-1.5 leading-snug"
-              : "font-semibold text-black text-base md:text-lg mt-2 mb-1 leading-snug") +
+              ? "font-bold text-black text-lg md:text-xl mt-2 mb-1.5 leading-snug"
+              : "font-bold text-black text-base md:text-lg mt-2 mb-1 leading-snug") +
             "\">" +
             text +
             "</h3>"
@@ -128,18 +137,18 @@ function linkToAnchor(url) {
 }
 
 var RICH_TEXT_HEADING_PROSE =
-  "[&_h1]:!mt-3 [&_h1]:!mb-1.5 [&_h1]:!font-bold [&_h1]:!text-[#E61C39] [&_h1]:!text-xl md:[&_h1]:!text-2xl [&_h1]:!leading-tight " +
-  "[&_h2]:!mt-2.5 [&_h2]:!mb-1.5 [&_h2]:!font-bold [&_h2]:!text-[#E61C39] [&_h2]:!text-lg md:[&_h2]:!text-xl [&_h2]:!leading-tight " +
-  "[&_h3]:!mt-2 [&_h3]:!mb-1 [&_h3]:!font-semibold [&_h3]:!text-black [&_h3]:!text-base md:[&_h3]:!text-lg [&_h3]:!leading-snug " +
+  "[&_h1]:!mt-2.5 [&_h1]:!mb-1.5 [&_h1]:!font-bold [&_h1]:!text-[#E61C39] [&_h1]:!text-lg md:[&_h1]:!text-xl [&_h1]:!leading-tight " +
+  "[&_h2]:!mt-2 [&_h2]:!mb-1 [&_h2]:!font-bold [&_h2]:!text-[#E61C39] [&_h2]:!text-base md:[&_h2]:!text-lg [&_h2]:!leading-snug " +
+  "[&_h3]:!mt-2 [&_h3]:!mb-1 [&_h3]:!font-bold [&_h3]:!text-black [&_h3]:!text-base md:[&_h3]:!text-lg [&_h3]:!leading-snug " +
   "[&_h4]:!mt-2 [&_h4]:!mb-1 [&_h4]:!font-semibold [&_h4]:!text-foreground [&_h4]:!text-sm [&_h4]:!leading-snug " +
   "[&_h5]:!mt-1.5 [&_h5]:!mb-0.5 [&_h5]:!font-semibold [&_h5]:!text-foreground [&_h5]:!text-xs " +
   "[&_h6]:!mt-1.5 [&_h6]:!mb-0.5 [&_h6]:!font-semibold [&_h6]:!text-foreground [&_h6]:!text-xs";
 
 /** Rich-text heading scale for full-width "Text" resource cards (closer to section reader). */
 var RICH_TEXT_HEADING_PROSE_TEXT_RESOURCE =
-  "[&_h1]:!mt-4 [&_h1]:!mb-2 [&_h1]:!font-bold [&_h1]:!tracking-tight [&_h1]:!text-[#E61C39] [&_h1]:!text-2xl md:[&_h1]:!text-3xl [&_h1]:!leading-tight " +
-  "[&_h2]:!mt-3 [&_h2]:!mb-2 [&_h2]:!font-bold [&_h2]:!text-[#E61C39] [&_h2]:!text-xl md:[&_h2]:!text-2xl [&_h2]:!leading-tight " +
-  "[&_h3]:!mt-3 [&_h3]:!mb-1.5 [&_h3]:!font-semibold [&_h3]:!text-black [&_h3]:!text-lg md:[&_h3]:!text-xl [&_h3]:!leading-snug " +
+  "[&_h1]:!mt-3 [&_h1]:!mb-2 [&_h1]:!font-bold [&_h1]:!text-[#E61C39] [&_h1]:!text-xl md:[&_h1]:!text-2xl [&_h1]:!leading-tight " +
+  "[&_h2]:!mt-3 [&_h2]:!mb-1.5 [&_h2]:!font-bold [&_h2]:!text-[#E61C39] [&_h2]:!text-lg md:[&_h2]:!text-xl [&_h2]:!leading-snug " +
+  "[&_h3]:!mt-3 [&_h3]:!mb-1.5 [&_h3]:!font-bold [&_h3]:!text-black [&_h3]:!text-lg md:[&_h3]:!text-xl [&_h3]:!leading-snug " +
   "[&_h4]:!mt-2 [&_h4]:!mb-1 [&_h4]:!font-semibold [&_h4]:!text-[#E61C39] [&_h4]:!text-base [&_h4]:!leading-snug " +
   "[&_h5]:!mt-2 [&_h5]:!mb-1 [&_h5]:!font-semibold [&_h5]:!text-[#E61C39] [&_h5]:!text-sm " +
   "[&_h6]:!mt-2 [&_h6]:!mb-1 [&_h6]:!font-semibold [&_h6]:!text-[#E61C39] [&_h6]:!text-sm";
@@ -161,16 +170,16 @@ function markdownLineAsHeadingOrNull(trimmedLine: string, headingProfile?: strin
   var cls: string;
   if (tr) {
     cls =
-      depth === 1 ? "font-bold tracking-tight text-[#E61C39] text-2xl md:text-3xl mt-4 mb-2 leading-tight" :
-      depth === 2 ? "font-bold text-[#E61C39] text-xl md:text-2xl mt-3 mb-2 leading-tight" :
-      depth === 3 ? "font-semibold text-black text-lg md:text-xl mt-3 mb-1.5 leading-snug" :
+      depth === 1 ? "font-bold text-[#E61C39] text-xl md:text-2xl mt-3 mb-2 leading-tight" :
+      depth === 2 ? "font-bold text-[#E61C39] text-lg md:text-xl mt-3 mb-1.5 leading-snug" :
+      depth === 3 ? "font-bold text-black text-lg md:text-xl mt-3 mb-1.5 leading-snug" :
       depth === 4 ? "font-semibold text-[#E61C39] text-base mt-2 mb-1 leading-snug" :
       "font-semibold text-[#E61C39] text-sm mt-2 mb-1 leading-snug";
   } else {
     cls =
-      depth === 1 ? "font-bold text-[#E61C39] text-xl md:text-2xl mt-3 mb-1.5 leading-tight" :
-      depth === 2 ? "font-bold text-[#E61C39] text-lg md:text-xl mt-2.5 mb-1.5 leading-tight" :
-      depth === 3 ? "font-semibold text-black text-base md:text-lg mt-2 mb-1 leading-snug" :
+      depth === 1 ? "font-bold text-[#E61C39] text-lg md:text-xl mt-2.5 mb-1.5 leading-tight" :
+      depth === 2 ? "font-bold text-[#E61C39] text-base md:text-lg mt-2 mb-1 leading-snug" :
+      depth === 3 ? "font-bold text-black text-base md:text-lg mt-2 mb-1 leading-snug" :
       depth === 4 ? "font-semibold text-foreground text-sm mt-2 mb-1 leading-snug" :
       "font-semibold text-foreground text-xs mt-2 mb-0.5 leading-snug";
   }
@@ -217,10 +226,10 @@ function markdownToHtml(md: string, headingProfile?: string) {
   var result = [];
   var listStack = [];
   var lastWasLi = false;
-  var ulStyle = "list-style-type:disc;padding-left:3rem;margin:0.25rem 0 0 1rem;list-style-position:outside";
-  var olStyle = "list-style-type:decimal;padding-left:3rem;margin:0.25rem 0 0 1rem;list-style-position:outside";
-  var ulStyleNested = "list-style-type:disc;padding-left:1.5rem;margin:0.25rem 0 0 0.5rem;list-style-position:outside";
-  var olStyleNested = "list-style-type:decimal;padding-left:1.5rem;margin:0.25rem 0 0 0.5rem;list-style-position:outside";
+  var ulStyle = "list-style-type:disc;padding-left:1.75rem;margin:0.25rem 0 0.25rem 0;list-style-position:outside";
+  var olStyle = "list-style-type:decimal;padding-left:1.75rem;margin:0.25rem 0 0.25rem 0;list-style-position:outside";
+  var ulStyleNested = "list-style-type:disc;padding-left:1.125rem;margin:0.15rem 0 0 0;list-style-position:outside";
+  var olStyleNested = "list-style-type:decimal;padding-left:1.125rem;margin:0.15rem 0 0 0;list-style-position:outside";
   function closeListsToLevel(level) {
     while (listStack.length > level + 1) {
       if (lastWasLi) { result.push("</li>"); lastWasLi = false; }
@@ -408,8 +417,8 @@ function renderDescription(desc, fullWidth, options) {
     <div
       className={cn(
         textResourceCard
-          ? "text-base leading-relaxed text-black prose prose-base max-w-none [&_ul]:list-disc [&_ul]:!pl-12 [&_ol]:!pl-12 [&_ul]:!list-outside [&_ol]:!list-outside [&_li]:list-item [&_a]:!underline [&_p]:!text-black"
-          : "text-sm leading-relaxed text-foreground/90 prose prose-sm max-w-none [&_ul]:list-disc [&_ul]:!pl-12 [&_ol]:!pl-12 [&_ul]:!list-outside [&_ol]:!list-outside [&_li]:list-item [&_a]:!underline",
+          ? "text-base leading-relaxed text-black prose prose-base max-w-none [&_ul]:list-disc [&_ul]:!pl-8 [&_ul_ul]:!pl-5 [&_ol]:!pl-8 [&_ol_ol]:!pl-5 [&_ul]:!list-outside [&_ol]:!list-outside [&_li]:list-item [&_a]:!underline [&_p]:!text-black [&_strong]:!font-bold"
+          : "text-sm leading-relaxed text-foreground/90 prose prose-sm max-w-none [&_ul]:list-disc [&_ul]:!pl-8 [&_ul_ul]:!pl-5 [&_ol]:!pl-8 [&_ol_ol]:!pl-5 [&_ul]:!list-outside [&_ol]:!list-outside [&_li]:list-item [&_a]:!underline [&_strong]:!font-bold",
         textResourceCard ? RICH_TEXT_HEADING_PROSE_TEXT_RESOURCE : RICH_TEXT_HEADING_PROSE,
         fullWidth ? "" : ""
       )}
@@ -948,7 +957,7 @@ export default function Block(props: Record<string, unknown>) {
                         </div>
                       )}
                       <div className={cn("flex-1", embedInCourseDetail ? "p-4" : "p-6")}>
-                        <h2 className="text-2xl md:text-3xl font-bold tracking-tight text-[#E61C39] text-center mb-4">{r.title}</h2>
+                        <h2 className="text-2xl md:text-3xl !font-bold tracking-tight text-[#E61C39] text-center mb-4">{r.title}</h2>
                         {renderDescription(r.description, true, { textResourceCard: true })}
                       </div>
                     </div>
@@ -965,7 +974,7 @@ export default function Block(props: Record<string, unknown>) {
                         </div>
                       )}
                       <div className={cn("flex-1", embedInCourseDetail ? "p-4" : "p-6")}>
-                        <h2 className="text-2xl md:text-3xl font-bold tracking-tight text-[#E61C39] text-center mb-4">{r.title}</h2>
+                        <h2 className="text-2xl md:text-3xl !font-bold tracking-tight text-[#E61C39] text-center mb-4">{r.title}</h2>
                         {renderDescription(r.description, true, { textResourceCard: true })}
                       </div>
                     </div>
@@ -984,7 +993,7 @@ export default function Block(props: Record<string, unknown>) {
                             <span className="text-lg font-semibold text-muted-foreground">{r.title ? r.title.charAt(0).toUpperCase() : "?"}</span>
                           )}
                         </div>
-                        <h3 className="text-base font-semibold text-foreground">{r.title}</h3>
+                        <h3 className={resourceCardNonTextTitleClass(embedInCourseDetail)}>{r.title}</h3>
                         {renderDescription(r.description, false)}
                       </div>
                     </div>
@@ -1007,7 +1016,7 @@ export default function Block(props: Record<string, unknown>) {
                         </div>
                       )}
                       <div className={cn("flex flex-col flex-1", embedInCourseDetail ? "p-3" : "p-4")}>
-                        <h3 className="text-base font-semibold text-foreground">{r.title}</h3>
+                        <h3 className={resourceCardNonTextTitleClass(embedInCourseDetail)}>{r.title}</h3>
                         {renderDescription(r.description, false)}
                         {r.link && (
                           <Button asChild variant="outline" size="sm" className="mt-3 w-fit">
@@ -1040,7 +1049,7 @@ export default function Block(props: Record<string, unknown>) {
                         </div>
                       )}
                       <div className={cn("flex flex-col flex-1", embedInCourseDetail ? "p-3" : "p-4")}>
-                        <h3 className="text-base font-semibold text-foreground">{r.title}</h3>
+                        <h3 className={resourceCardNonTextTitleClass(embedInCourseDetail)}>{r.title}</h3>
                         {renderDescription(r.description, false, { plainTextOnly: true })}
                         <Button type="button" variant="outline" size="sm" className="mt-3 w-fit" onClick={function () { var u = docUrlByResourceId.current[r.id]; if (window && u) window.open(u, "_blank", "noopener,noreferrer"); }}><Download className="mr-2 h-4 w-4" />Download File</Button>
                       </div>
@@ -1054,8 +1063,12 @@ export default function Block(props: Record<string, unknown>) {
                   return (
                     <div key={r.id} className={cn("flex flex-col border border-border rounded-lg bg-card overflow-hidden shadow-sm h-auto", colClass)}>
                       <DocPreviewArea type={pdfLike ? "PDF" : r.type} photoUrl={safePhotoUrl(r)} title={r.title} docUrl={pdfLike ? r.docUrl : null} fullWidth={r.type === "Full Width PDF"} />
-                      <div className={cn("flex flex-col flex-1", embedInCourseDetail ? "p-3" : "p-4")}>
-                        <h3 className="text-base font-semibold text-foreground">{r.title}</h3>
+                      <div className={cn("flex flex-col flex-1", r.type === "Full Width PDF" ? (embedInCourseDetail ? "p-4" : "p-6") : embedInCourseDetail ? "p-3" : "p-4")}>
+                        {r.type === "Full Width PDF" ? (
+                          <h2 className="text-2xl md:text-3xl !font-bold tracking-tight text-[#E61C39] text-center mb-4">{r.title}</h2>
+                        ) : (
+                          <h3 className={resourceCardNonTextTitleClass(embedInCourseDetail)}>{r.title}</h3>
+                        )}
                         {renderDescription(r.description, false, { stripDocumentLinks: true, docUrl: r.docUrl || undefined })}
                         {r.docUrl && pdfLike && (
                           <Button type="button" variant="outline" size="sm" className="mt-3 w-fit" onClick={function () { var u = docUrlByResourceId.current[r.id]; if (typeof window !== "undefined" && u) window.open(u, "_blank", "noopener,noreferrer"); }}>
@@ -1082,7 +1095,7 @@ export default function Block(props: Record<string, unknown>) {
                         </div>
                       )}
                       <div className={cn("flex flex-col flex-1", embedInCourseDetail ? "p-3" : "p-4")}>
-                        <h3 className="text-base font-semibold text-foreground">{r.title}</h3>
+                        <h3 className={resourceCardNonTextTitleClass(embedInCourseDetail)}>{r.title}</h3>
                         {renderDescription(r.description, false)}
                         {r.link && (
                           <Button asChild variant="outline" size="sm" className="mt-3 w-fit">
@@ -1109,7 +1122,7 @@ export default function Block(props: Record<string, unknown>) {
                         )}
                       </div>
                       <div className={cn("flex flex-col flex-1", embedInCourseDetail ? "p-3" : "p-4")}>
-                        <h3 className="text-base font-semibold text-foreground">{r.title}</h3>
+                        <h3 className={resourceCardNonTextTitleClass(embedInCourseDetail)}>{r.title}</h3>
                         {renderDescription(r.description, false)}
                         <Button type="button" variant="outline" size="sm" className="mt-3 w-fit" onClick={function () { var u = r.surveyLink || r.link; if (u) setSurveyModalUrl(u); }}>
                           Go <ArrowRight className="ml-1 h-4 w-4 inline" />
@@ -1138,7 +1151,7 @@ export default function Block(props: Record<string, unknown>) {
                         )}
                       </div>
                       <div className={cn("flex flex-col flex-1", embedInCourseDetail ? "p-3" : "p-4")}>
-                        <h3 className="text-base font-semibold text-foreground">{r.title}</h3>
+                        <h3 className={resourceCardNonTextTitleClass(embedInCourseDetail)}>{r.title}</h3>
                         {renderDescription(r.description, false, (backstageIsDoc || backstageIsAttachment) ? { stripDocumentLinks: true, docUrl: backstageHref || undefined } : undefined)}
                         {backstageHref && (backstageIsDoc || backstageIsAttachment ? (
                           <Button type="button" variant="outline" size="sm" className="mt-3 w-fit" onClick={function () { var u = docUrlByResourceId.current[r.id]; if (typeof window !== "undefined" && u) window.open(u, "_blank", "noopener,noreferrer"); }}>
@@ -1188,7 +1201,7 @@ export default function Block(props: Record<string, unknown>) {
                         </div>
                       )}
                       <div className={cn("flex-1", embedInCourseDetail ? "p-4" : "p-6")}>
-                        <h3 className="text-base font-semibold text-foreground mb-2">{r.title}</h3>
+                        <h3 className={cn(resourceCardNonTextTitleClass(embedInCourseDetail), "mb-2")}>{r.title}</h3>
                         {renderDescription(recDescription, true)}
                         <div className="flex flex-wrap gap-2 mt-3">
                           {r.link && (
@@ -1235,7 +1248,7 @@ export default function Block(props: Record<string, unknown>) {
                         </div>
                       )}
                       <div className={cn("flex flex-col flex-1", embedInCourseDetail ? "p-3" : "p-4")}>
-                        <h3 className="text-base font-semibold text-foreground mb-2 flex items-center gap-2">
+                        <h3 className={cn(resourceCardNonTextTitleClass(embedInCourseDetail), "mb-2 flex items-center gap-2")}>
                           <Calendar className="h-5 w-5 shrink-0 text-muted-foreground" />
                           {r.title}
                         </h3>
@@ -1269,7 +1282,7 @@ export default function Block(props: Record<string, unknown>) {
                       </div>
                     ) : null}
                     <div className={cn("flex flex-col flex-1", embedInCourseDetail ? "p-3" : "p-4")}>
-                      <h3 className="text-base font-semibold text-foreground">{r.title}</h3>
+                      <h3 className={resourceCardNonTextTitleClass(embedInCourseDetail)}>{r.title}</h3>
                       {renderDescription(r.description, false, fallbackLinkIsDoc ? { stripDocumentLinks: true, docUrl: fallbackDocUrl || undefined } : undefined)}
                       {(r.link || r.docUrl) && (fallbackLinkIsDoc ? (
                         <div className="flex flex-wrap gap-2 mt-3">
