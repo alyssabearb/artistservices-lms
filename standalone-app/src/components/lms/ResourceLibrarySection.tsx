@@ -61,8 +61,9 @@ function blockElementToHtml(el) {
   if (el.link) return '<a href="' + escapeHtml(el.link) + '" target="_blank" rel="noopener noreferrer">' + text + "</a>";
   return text;
 }
-function blocksToHtml(blocks) {
+function blocksToHtml(blocks, headingProfile) {
   if (!Array.isArray(blocks) || blocks.length === 0) return "";
+  var tr = headingProfile === "textResource";
   var out = [];
   var inList = false;
   var listTag = "ul";
@@ -74,7 +75,7 @@ function blocksToHtml(blocks) {
       text = b.elements.map(blockElementToHtml).join("");
     } else if (text != null) {
       var str = String(text);
-      text = (/\*\*[^*]*\*\*|\[[^\]]+\]\([^)]+\)|^\s*#{1,6}\s+/m.test(str) ? markdownToHtml(str) : escapeHtml(str));
+      text = (/\*\*[^*]*\*\*|\[[^\]]+\]\([^)]+\)|^\s*#{1,6}\s+/m.test(str) ? markdownToHtml(str, headingProfile) : escapeHtml(str));
     } else {
       text = "";
     }
@@ -84,11 +85,33 @@ function blocksToHtml(blocks) {
     } else {
       if (inList) { out.push("</" + listTag + ">"); inList = false; }
       if (type === "heading_1")
-        out.push("<h1 class=\"font-bold text-[#E61C39] text-xl md:text-2xl mt-3 mb-1.5 leading-tight\">" + text + "</h1>");
+        out.push(
+          "<h1 class=\"" +
+            (tr
+              ? "font-bold text-[#E61C39] text-2xl md:text-3xl mt-3 mb-2 leading-tight"
+              : "font-bold text-[#E61C39] text-xl md:text-2xl mt-3 mb-1.5 leading-tight") +
+            "\">" +
+            text +
+            "</h1>"
+        );
       else if (type === "heading_2")
-        out.push("<h2 class=\"font-bold text-[#E61C39] text-lg md:text-xl mt-2.5 mb-1.5 leading-tight\">" + text + "</h2>");
+        out.push(
+          "<h2 class=\"" +
+            (tr ? "font-bold text-[#E61C39] text-xl md:text-2xl mt-3 mb-2 leading-tight" : "font-bold text-[#E61C39] text-lg md:text-xl mt-2.5 mb-1.5 leading-tight") +
+            "\">" +
+            text +
+            "</h2>"
+        );
       else if (type === "heading_3")
-        out.push("<h3 class=\"font-semibold text-black text-base md:text-lg mt-2 mb-1 leading-snug\">" + text + "</h3>");
+        out.push(
+          "<h3 class=\"" +
+            (tr
+              ? "font-semibold text-black text-lg md:text-xl mt-2 mb-1.5 leading-snug"
+              : "font-semibold text-black text-base md:text-lg mt-2 mb-1 leading-snug") +
+            "\">" +
+            text +
+            "</h3>"
+        );
       else out.push("<p style=\"margin:0.35rem 0 0.5rem 0;line-height:1.6\">" + (text || "&nbsp;") + "</p>");
     }
   }
@@ -112,6 +135,15 @@ var RICH_TEXT_HEADING_PROSE =
   "[&_h5]:!mt-1.5 [&_h5]:!mb-0.5 [&_h5]:!font-semibold [&_h5]:!text-foreground [&_h5]:!text-xs " +
   "[&_h6]:!mt-1.5 [&_h6]:!mb-0.5 [&_h6]:!font-semibold [&_h6]:!text-foreground [&_h6]:!text-xs";
 
+/** Rich-text heading scale for full-width "Text" resource cards (closer to section reader). */
+var RICH_TEXT_HEADING_PROSE_TEXT_RESOURCE =
+  "[&_h1]:!mt-4 [&_h1]:!mb-2 [&_h1]:!font-bold [&_h1]:!tracking-tight [&_h1]:!text-[#E61C39] [&_h1]:!text-2xl md:[&_h1]:!text-3xl [&_h1]:!leading-tight " +
+  "[&_h2]:!mt-3 [&_h2]:!mb-2 [&_h2]:!font-bold [&_h2]:!text-[#E61C39] [&_h2]:!text-xl md:[&_h2]:!text-2xl [&_h2]:!leading-tight " +
+  "[&_h3]:!mt-3 [&_h3]:!mb-1.5 [&_h3]:!font-semibold [&_h3]:!text-black [&_h3]:!text-lg md:[&_h3]:!text-xl [&_h3]:!leading-snug " +
+  "[&_h4]:!mt-2 [&_h4]:!mb-1 [&_h4]:!font-semibold [&_h4]:!text-[#E61C39] [&_h4]:!text-base [&_h4]:!leading-snug " +
+  "[&_h5]:!mt-2 [&_h5]:!mb-1 [&_h5]:!font-semibold [&_h5]:!text-[#E61C39] [&_h5]:!text-sm " +
+  "[&_h6]:!mt-2 [&_h6]:!mb-1 [&_h6]:!font-semibold [&_h6]:!text-[#E61C39] [&_h6]:!text-sm";
+
 function sanitizeRichTextHtml(html: string) {
   if (!html || typeof html !== "string") return "";
   return html
@@ -119,22 +151,33 @@ function sanitizeRichTextHtml(html: string) {
     .replace(/\son\w+\s*=\s*(?:"[^"]*"|'[^']*'|[^\s>]+)/gi, "");
 }
 
-function markdownLineAsHeadingOrNull(trimmedLine: string): string | null {
+function markdownLineAsHeadingOrNull(trimmedLine: string, headingProfile?: string): string | null {
   if (!trimmedLine) return null;
   var m = trimmedLine.match(/^(#{1,6})\s+(.+)$/);
   if (!m) return null;
   var depth = Math.min(6, Math.max(1, m[1].length));
   var inner = m[2];
-  var cls =
-    depth === 1 ? "font-bold text-[#E61C39] text-xl md:text-2xl mt-3 mb-1.5 leading-tight" :
-    depth === 2 ? "font-bold text-[#E61C39] text-lg md:text-xl mt-2.5 mb-1.5 leading-tight" :
-    depth === 3 ? "font-semibold text-black text-base md:text-lg mt-2 mb-1 leading-snug" :
-    depth === 4 ? "font-semibold text-foreground text-sm mt-2 mb-1 leading-snug" :
-    "font-semibold text-foreground text-xs mt-2 mb-0.5 leading-snug";
+  var tr = headingProfile === "textResource";
+  var cls: string;
+  if (tr) {
+    cls =
+      depth === 1 ? "font-bold tracking-tight text-[#E61C39] text-2xl md:text-3xl mt-4 mb-2 leading-tight" :
+      depth === 2 ? "font-bold text-[#E61C39] text-xl md:text-2xl mt-3 mb-2 leading-tight" :
+      depth === 3 ? "font-semibold text-black text-lg md:text-xl mt-3 mb-1.5 leading-snug" :
+      depth === 4 ? "font-semibold text-[#E61C39] text-base mt-2 mb-1 leading-snug" :
+      "font-semibold text-[#E61C39] text-sm mt-2 mb-1 leading-snug";
+  } else {
+    cls =
+      depth === 1 ? "font-bold text-[#E61C39] text-xl md:text-2xl mt-3 mb-1.5 leading-tight" :
+      depth === 2 ? "font-bold text-[#E61C39] text-lg md:text-xl mt-2.5 mb-1.5 leading-tight" :
+      depth === 3 ? "font-semibold text-black text-base md:text-lg mt-2 mb-1 leading-snug" :
+      depth === 4 ? "font-semibold text-foreground text-sm mt-2 mb-1 leading-snug" :
+      "font-semibold text-foreground text-xs mt-2 mb-0.5 leading-snug";
+  }
   return "<h" + depth + " class=\"" + cls + "\">" + inner + "</h" + depth + ">";
 }
 
-function markdownToHtml(md) {
+function markdownToHtml(md: string, headingProfile?: string) {
   if (!md || typeof md !== "string") return "";
   var out = md;
   out = out.replace(/\\_/g, "_").replace(/\\\*/g, "*");
@@ -216,7 +259,7 @@ function markdownToHtml(md) {
       if (lastWasLi) { result.push("</li>"); lastWasLi = false; }
       while (listStack.length > 0) { result.push("</" + listStack.pop() + ">"); }
       var t = line.trim();
-      var headingHtml = markdownLineAsHeadingOrNull(t);
+      var headingHtml = markdownLineAsHeadingOrNull(t, headingProfile);
       if (headingHtml) result.push(headingHtml);
       else result.push(t === "" ? "<p style=\"margin:0.35rem 0;line-height:1.6\">&nbsp;</p>" : "<p style=\"margin:0.35rem 0 0.5rem 0;line-height:1.6\">" + t + "</p>");
     }
@@ -323,6 +366,8 @@ function renderDescription(desc, fullWidth, options) {
       </div>
     );
   }
+  var textResourceCard = options && options.textResourceCard;
+  var headingProf = textResourceCard ? "textResource" : undefined;
   var s;
   var fromBlocks = false;
   if (typeof desc === "string") {
@@ -331,16 +376,16 @@ function renderDescription(desc, fullWidth, options) {
     var o = desc;
     var contentVal = o.html ?? o.HTML ?? o.value ?? o.text ?? o.plain;
     if (contentVal != null && typeof contentVal === "string") s = contentVal.trim();
-    else if (Array.isArray(o.content) && o.content.length > 0) { s = blocksToHtml(o.content); fromBlocks = true; }
+    else if (Array.isArray(o.content) && o.content.length > 0) { s = blocksToHtml(o.content, headingProf); fromBlocks = true; }
     else if (o.content != null && typeof o.content === "string") s = String(o.content).trim();
     else s = "";
     if (!s && Array.isArray(o.blocks) && o.blocks.length > 0) {
-      s = blocksToHtml(o.blocks);
+      s = blocksToHtml(o.blocks, headingProf);
       fromBlocks = true;
     } else if (!s && Array.isArray(o.blocks)) {
       s = o.blocks.map(function (b) { return b.text ?? b.content ?? ""; }).join("\n").trim();
     } else if (!s && Array.isArray(o.elements) && o.elements.length > 0) {
-      s = blocksToHtml(o.elements);
+      s = blocksToHtml(o.elements, headingProf);
       fromBlocks = true;
     }
   } else {
@@ -355,15 +400,17 @@ function renderDescription(desc, fullWidth, options) {
     typeof s === "string" &&
     (/\*\*[^*]*\*\*|\[[^\]]+\]\([^)]+\)/.test(s) || /^\s*[-*]\s+/m.test(s) || /^\s*#{1,6}\s+/m.test(s));
   var isHtml = fromBlocks || (!looksLikeMarkdown && /<[a-z][\s\S]*>/i.test(s));
-  var html = (looksLikeMarkdown && !fromBlocks) ? markdownToHtml(s) : (isHtml ? s : markdownToHtml(s));
+  var html = (looksLikeMarkdown && !fromBlocks) ? markdownToHtml(s, headingProf) : (isHtml ? s : markdownToHtml(s, headingProf));
   html = sanitizeRichTextHtml(html);
   if (stripAllLinks) html = stripAllLinksFromHtml(html, options && options.docUrl ? options.docUrl : null);
   else if (options && options.stripDocumentLinks) html = stripDocumentLinksFromHtml(html, resourceDocUrl);
   return (
     <div
       className={cn(
-        "text-sm leading-relaxed text-foreground/90 prose prose-sm max-w-none [&_ul]:list-disc [&_ul]:!pl-12 [&_ol]:!pl-12 [&_ul]:!list-outside [&_ol]:!list-outside [&_li]:list-item [&_a]:!underline",
-        RICH_TEXT_HEADING_PROSE,
+        textResourceCard
+          ? "text-base leading-relaxed text-black prose prose-base max-w-none [&_ul]:list-disc [&_ul]:!pl-12 [&_ol]:!pl-12 [&_ul]:!list-outside [&_ol]:!list-outside [&_li]:list-item [&_a]:!underline [&_p]:!text-black"
+          : "text-sm leading-relaxed text-foreground/90 prose prose-sm max-w-none [&_ul]:list-disc [&_ul]:!pl-12 [&_ol]:!pl-12 [&_ul]:!list-outside [&_ol]:!list-outside [&_li]:list-item [&_a]:!underline",
+        textResourceCard ? RICH_TEXT_HEADING_PROSE_TEXT_RESOURCE : RICH_TEXT_HEADING_PROSE,
         fullWidth ? "" : ""
       )}
       style={{ lineHeight: 1.6 }}
@@ -901,8 +948,8 @@ export default function Block(props: Record<string, unknown>) {
                         </div>
                       )}
                       <div className={cn("flex-1", embedInCourseDetail ? "p-4" : "p-6")}>
-                        <h3 className="text-base font-semibold text-foreground mb-2">{r.title}</h3>
-                        {renderDescription(r.description, true)}
+                        <h2 className="text-2xl md:text-3xl font-bold tracking-tight text-[#E61C39] text-center mb-4">{r.title}</h2>
+                        {renderDescription(r.description, true, { textResourceCard: true })}
                       </div>
                     </div>
                   );
@@ -918,8 +965,8 @@ export default function Block(props: Record<string, unknown>) {
                         </div>
                       )}
                       <div className={cn("flex-1", embedInCourseDetail ? "p-4" : "p-6")}>
-                        <h3 className="text-base font-semibold text-foreground mb-2">{r.title}</h3>
-                        {renderDescription(r.description, true)}
+                        <h2 className="text-2xl md:text-3xl font-bold tracking-tight text-[#E61C39] text-center mb-4">{r.title}</h2>
+                        {renderDescription(r.description, true, { textResourceCard: true })}
                       </div>
                     </div>
                   );
