@@ -10,6 +10,7 @@ import { Checkbox } from "@/components/ui/checkbox";
 import { cn } from "@/lib/utils";
 import { buildTrackViewHref, resolveFinishTrackRecordId } from "@/lib/lms-track-nav";
 import { ComprehensionCheckSection } from "@/components/lms/ComprehensionCheckSection";
+import { LmsHeicAwareImage } from "@/components/lms/LmsHeicAwareImage";
 import { getComprehensionChoicesRaw, getComprehensionQuestionMode, isSurveySectionFields } from "@/lib/lms-fields";
 
 var SECTION_VIEW_WEBHOOK_URL =
@@ -95,13 +96,19 @@ function SectionTextGallery(props) {
     setIndex(0);
   }, [resetKey]);
   if (images.length === 0) return null;
-  var galIdx = Math.min(Math.max(0, index), images.length - 1);
+  var n = images.length;
+  var galIdx = Math.min(Math.max(0, index), n - 1);
+  var slidePct = 100 / n;
+  var trackStyle = {
+    width: n * 100 + "%",
+    transform: "translate3d(-" + galIdx * slidePct + "%,0,0)",
+  };
   return React.createElement(
     "div",
     { className: "w-full" },
     React.createElement(
       "div",
-      { className: "relative flex min-h-[min(40vh,480px)] items-center justify-center gap-2 w-full rounded-lg overflow-hidden bg-muted/30 border border-border" },
+      { className: "relative w-full min-h-[min(40vh,480px)] rounded-lg overflow-hidden bg-muted/30 border border-border" },
       React.createElement(
         Button,
         {
@@ -119,12 +126,47 @@ function SectionTextGallery(props) {
         },
         React.createElement(ChevronLeft, { className: "h-6 w-6" })
       ),
-      React.createElement("img", {
-        src: images[galIdx].url,
-        alt: images[galIdx].name,
-        className: "max-w-full max-h-[70vh] w-auto h-auto object-contain",
-        decoding: "async",
-      }),
+      React.createElement(
+        "div",
+        { className: "w-full min-h-[min(40vh,480px)] overflow-hidden" },
+        React.createElement(
+          "div",
+          {
+            className:
+              "flex shrink-0 flex-row items-stretch will-change-transform transition-[transform] duration-300 ease-out motion-reduce:transition-none min-h-[min(40vh,480px)]",
+            style: trackStyle,
+          },
+          images.map(function (im, i) {
+            return React.createElement(
+              "div",
+              {
+                key: (im.url != null ? String(im.url) : "") + "-" + i,
+                className: "flex shrink-0 grow-0 items-center justify-center box-border py-4 px-2 min-h-[min(40vh,480px)]",
+                style: { width: slidePct + "%" },
+              },
+              React.createElement(
+                "button",
+                {
+                  type: "button",
+                  className:
+                    "flex h-full min-h-0 w-full max-w-full cursor-zoom-in flex-col items-center justify-center rounded-none border-0 bg-transparent p-0 outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2",
+                  onClick: function () {
+                    if (typeof props.onOpenLightbox === "function") props.onOpenLightbox({ url: im.url, name: im.name != null ? String(im.name) : "Image" });
+                  },
+                  "aria-label": "View larger: " + (im.name != null ? String(im.name) : "Image"),
+                },
+                React.createElement(LmsHeicAwareImage, {
+                  src: im.url,
+                  alt: im.name != null ? String(im.name) : "",
+                  className: "max-w-full max-h-[70vh] w-auto h-auto object-contain pointer-events-none",
+                  decoding: "async",
+                  loading: i <= 1 ? "eager" : "lazy",
+                })
+              )
+            );
+          })
+        )
+      ),
       React.createElement(
         Button,
         {
@@ -134,16 +176,16 @@ function SectionTextGallery(props) {
           "aria-label": "Next image",
           onClick: function () {
             setIndex(function (i) {
-              return Math.min(images.length - 1, i + 1);
+              return Math.min(n - 1, i + 1);
             });
           },
-          disabled: galIdx >= images.length - 1,
+          disabled: galIdx >= n - 1,
           className: "absolute right-2 top-1/2 -translate-y-1/2 z-10 shrink-0",
         },
         React.createElement(ChevronRight, { className: "h-6 w-6" })
       )
     ),
-    React.createElement("p", { className: "text-center text-sm text-muted-foreground mt-2" }, galIdx + 1 + " / " + images.length)
+    React.createElement("p", { className: "text-center text-sm text-muted-foreground mt-2" }, galIdx + 1 + " / " + n)
   );
 }
 
@@ -823,7 +865,7 @@ export default function Block(props) {
             onClick: function () { setLightbox({ url: g.url, name: g.name }); },
             "aria-label": "View larger: " + g.name
           },
-            React.createElement("img", { src: g.url, alt: g.name, className: "w-full h-auto object-contain", loading: idx > 0 ? "lazy" : undefined })
+            React.createElement(LmsHeicAwareImage, { src: g.url, alt: g.name, className: "w-full h-auto object-contain pointer-events-none", loading: idx > 0 ? "lazy" : undefined })
           );
         })
       )
@@ -831,7 +873,16 @@ export default function Block(props) {
   }
 
   if (sectionType === "Text + Gallery" && galleryImages.length > 0) {
-    contentEls.push(React.createElement(SectionTextGallery, { key: "gallery", images: galleryImages, resetKey: sectionId || "" }));
+    contentEls.push(
+      React.createElement(SectionTextGallery, {
+        key: "gallery",
+        images: galleryImages,
+        resetKey: sectionId || "",
+        onOpenLightbox: function (item) {
+          setLightbox({ url: item.url, name: item.name });
+        },
+      })
+    );
   }
 
   var isLastSection = sectionIds.length > 0 && currentIndex === sectionIds.length - 1;
@@ -882,11 +933,11 @@ export default function Block(props) {
             "aria-label": "Close",
             onClick: function () { setLightbox(null); }
           }, React.createElement(X, { className: "h-5 w-5" })),
-          React.createElement("img", {
+          React.createElement(LmsHeicAwareImage, {
             src: lightbox.url,
             alt: lightbox.name || "",
             className: "max-h-[min(92vh,1200px)] max-w-full w-auto object-contain rounded-md shadow-lg",
-            onClick: function (e) { e.stopPropagation(); }
+            onClick: function (e) { e.stopPropagation(); },
           })
         )
       : null
